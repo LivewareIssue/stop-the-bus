@@ -44,14 +44,8 @@ def prile_value(rank: Rank) -> int:
         case Rank.Two:
             return 0
         case _:
-            return rank.value - 3
-
-
-def _pick_arbitrary[T](list: list[T]) -> T:
-    return list[0]
+            return int(rank.value) - 3
 
 
 def hand_value(hand: Hand) -> int:
-    if is_prile(hand):
-        return prile_value(_pick_arbitrary(hand).rank)
-    return single_high(hand)
+    return prile_value(hand[0].rank) + 32 if is_prile(hand) else maximum_suit_value(hand)

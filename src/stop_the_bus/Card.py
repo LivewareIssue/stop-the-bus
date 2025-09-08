@@ -62,7 +62,7 @@ class Card:
             case Rank.Ace:
                 return 11
             case _:
-                return self.rank.value
+                return int(self.rank.value)
 
     def __str__(self) -> str:
         return f"{self.rank}{self.suit.value}"

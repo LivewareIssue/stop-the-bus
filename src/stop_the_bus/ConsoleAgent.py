@@ -1,4 +1,4 @@
-from stop_the_bus.Card import Card
+from stop_the_bus.Card import Card, Suit
 from stop_the_bus.Deck import Deck
 from stop_the_bus.Game import Round, View
 from stop_the_bus.Hand import Hand
@@ -10,7 +10,7 @@ RESET_ANSI = "\x1b[0m"
 
 class ConsoleAgent:
     def begin_turn(self, view: View, show_discard_pile: bool = True) -> None:
-        _clear_console()
+        clear_console()
         print(f"{BLUE_ANSI}Player #{view.player}'s turn:{RESET_ANSI}")
         _print_bus_stopped(view.round.turns_remaining)
         if show_discard_pile:
@@ -33,12 +33,12 @@ class ConsoleAgent:
         _prompt_stop_the_bus(view.round)
 
 
-def _clear_console() -> None:
+def clear_console() -> None:
     print("\033c", end="")
 
 
 def _print_card(card: Card) -> None:
-    if card.suit in (card.suit.Hearts, card.suit.Diamonds):
+    if card.suit in (Suit.Hearts, Suit.Diamonds):
         print(f"{RED_ANSI}{card}{RESET_ANSI}", end="")
     else:
         print(card, end="")
