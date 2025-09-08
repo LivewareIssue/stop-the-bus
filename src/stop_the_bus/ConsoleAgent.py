@@ -9,28 +9,29 @@ RESET_ANSI = "\x1b[0m"
 
 
 class ConsoleAgent:
-    def begin_turn(self, view: View, show_discard_pile: bool = True) -> None:
+    def begin_turn(self, view: View) -> None:
         clear_console()
         print(f"{BLUE_ANSI}Player #{view.player}'s turn:{RESET_ANSI}")
         _print_bus_stopped(view.round.turns_remaining)
-        if show_discard_pile:
+        if view.round.turn > 0:
             print()
             _print_discard_pile(view.discard_pile)
 
-    def draw(self, view: View) -> None:
+    def draw(self, view: View) -> tuple[Card, bool]:
         print()
         _print_hand(view.hand)
-        _prompt_draw(view.round)
+        return _prompt_draw(view.round)
 
-    def discard(self, view: View) -> None:
+    def discard(self, view: View) -> Card:
         print()
         _print_hand(view.hand)
-        _prompt_discard(view.round, view.hand)
+        card: Card = _prompt_discard(view.round, view.hand)
         print()
         _print_hand(view.hand)
+        return card
 
-    def stop_the_bus(self, view: View) -> None:
-        _prompt_stop_the_bus(view.round)
+    def stop_the_bus(self, view: View) -> bool:
+        return _prompt_stop_the_bus(view.round)
 
 
 def clear_console() -> None:
@@ -64,33 +65,32 @@ def _print_bus_stopped(turns_remaining: int | None) -> None:
         print(f"{RED_ANSI}The bus has been stopped!{RESET_ANSI}")
 
 
-def _prompt_stop_the_bus(round: Round) -> None:
+def _prompt_stop_the_bus(round: Round) -> bool:
     if round.can_stop_the_bus():
         choice = input("Stop the bus? (y/n) ").lower()
         if choice == "y":
             round.stop_the_bus()
+            return True
+    return False
 
 
-def _prompt_discard(round: Round, hand: Hand) -> None:
+def _prompt_discard(round: Round, hand: Hand) -> Card:
     while True:
         try:
             index = int(input(f"Chose a card to discard (1-{len(hand)}): ")) - 1
             if index in range(len(hand)):
-                round.discard(index)
-                return
+                return round.discard(index)
         except Exception:
             pass
         print()
         print(f"{RED_ANSI}Invalid input, try again.{RESET_ANSI}")
 
 
-def _prompt_draw(round: Round) -> None:
+def _prompt_draw(round: Round) -> tuple[Card, bool]:
     while True:
         choice = input("Draw a card from the (d)eck or (p)ile? ").lower()
         if choice == "d":
-            round.draw_from_deck()
-            return
+            return round.draw_from_deck(), True
         elif choice == "p":
-            round.draw_from_discard()
-            return
+            return round.draw_from_discard(), False
         print(f"{RED_ANSI}Invalid input, try again.{RESET_ANSI}")

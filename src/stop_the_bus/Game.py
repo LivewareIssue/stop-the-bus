@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections import deque
+from collections import defaultdict, deque
 from collections.abc import Generator
 from dataclasses import dataclass
 
-from stop_the_bus.Card import Card
+from stop_the_bus.Card import Card, Rank
 from stop_the_bus.Deck import Deck, deal, empty_deck, shuffled_deck
-from stop_the_bus.Hand import Hand, empty_hand, flush_value, is_flush, is_prile
+from stop_the_bus.Hand import Hand, empty_hand, flush_value, hand_value, is_flush, is_prile
 
 
 class Game:
@@ -89,19 +89,21 @@ class Round:
     def current_view(self) -> View:
         return View(self, self._current_index)
 
-    def discard(self, card_index: int) -> None:
+    def discard(self, card_index: int) -> Card:
         card: Card = self.current_hand.pop(card_index)
         self.discard_pile.append(card)
         if card in self.certain_holds[self._current_index]:
             self.certain_holds[self._current_index].remove(card)
+        return card
 
-    def draw_from_deck(self) -> None:
-        deal(self.deck, self.current_hand)
+    def draw_from_deck(self) -> Card:
+        return deal(self.deck, self.current_hand)
 
-    def draw_from_discard(self) -> None:
+    def draw_from_discard(self) -> Card:
         card: Card = self.discard_pile.pop()
         self.current_hand.append(card)
         self.certain_holds[self._current_index].append(card)
+        return card
 
     def stop_the_bus(self) -> None:
         self.turns_remaining = self.player_count
@@ -116,6 +118,37 @@ class Round:
         self.turn += 1
         if self.turns_remaining is not None:
             self.turns_remaining -= 1
+
+    def end_round(self) -> None:
+        players_to_scores: dict[int, int] = {
+            player_index: hand_value(hand) for player_index, hand in enumerate(self.hands)
+        }
+
+        scores_to_player_indices: defaultdict[int, list[int]] = defaultdict(list)
+        for player_index, score in players_to_scores.items():
+            scores_to_player_indices[score].append(player_index)
+
+        high_score: int = max(scores_to_player_indices.keys())
+        [winning_player_index] = scores_to_player_indices[high_score]
+        winning_hand: Hand = self.hands[winning_player_index]
+
+        if is_prile(winning_hand):
+            [rank] = {card.rank for card in winning_hand}
+            self.prile_penalty(winning_player_index, rank)
+        else:
+            low_score: int = min(scores_to_player_indices.keys())
+            loser_indices: list[int] = scores_to_player_indices[low_score]
+            self.standard_penalty(loser_indices)
+
+    def standard_penalty(self, loser_indices: list[int]) -> None:
+        for i in loser_indices:
+            self.game.lives[self.players[i]] -= 1
+
+    def prile_penalty(self, winner_index: int, rank: Rank) -> None:
+        penalty: int = 2 if rank == Rank.Three else 1
+        for i, player in enumerate(self.players):
+            if i != winner_index:
+                self.game.lives[player] -= penalty
 
 
 @dataclass(frozen=True, slots=True)

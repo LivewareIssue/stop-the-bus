@@ -30,5 +30,7 @@ def shuffled_deck() -> Deck:
     return deque(cards)
 
 
-def deal(deck: Deck, hand: Hand) -> None:
-    hand.append(deck.pop())
+def deal(deck: Deck, hand: Hand) -> Card:
+    card: Card = deck.pop()
+    hand.append(card)
+    return card

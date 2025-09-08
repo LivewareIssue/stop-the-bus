@@ -48,4 +48,8 @@ def prile_value(rank: Rank) -> int:
 
 
 def hand_value(hand: Hand) -> int:
-    return prile_value(hand[0].rank) + 32 if is_prile(hand) else maximum_suit_value(hand)
+    if is_prile(hand):
+        [rank] = {card.rank for card in hand}
+        return prile_value(rank) + 32
+    else:
+        return maximum_suit_value(hand)

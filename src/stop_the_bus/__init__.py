@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from stop_the_bus.Agent import Agent, SupportsBeginTurn
+from stop_the_bus.Card import Card
 from stop_the_bus.ConsoleAgent import ConsoleAgent, clear_console
 from stop_the_bus.Game import Game, Round, View
 from stop_the_bus.Hand import hand_value
@@ -26,16 +27,18 @@ class Driver:
             print(round.hands[i])
             print(f"Score: {hand_value(round.hands[i])}")
             print()
+        round.end_round()
 
     def _drive_first_turn(self, round: Round) -> None:
         agent: Agent = self.agents[round.current_player]
         view: View = round.current_view()
 
         if isinstance(agent, SupportsBeginTurn):
-            agent.begin_turn(view, show_discard_pile=False)
+            agent.begin_turn(view)
 
-        agent.discard(view)
-        agent.stop_the_bus(view)
+        _discarded: Card = agent.discard(view)
+        _stopped_the_bus: bool = agent.stop_the_bus(view)
+
         round.advance_turn()
 
     def _drive_turn(self, round: Round) -> None:

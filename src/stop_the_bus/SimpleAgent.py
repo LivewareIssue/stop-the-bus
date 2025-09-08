@@ -6,7 +6,7 @@ from stop_the_bus.Hand import Hand, flush_value, is_prile
 
 
 class SimpleAgent:
-    def draw(self, view: View) -> None:
+    def draw(self, view: View) -> tuple[Card, bool]:
         round: Round = view.round
         hand = view.hand
         discard_pile = view.discard_pile
@@ -17,15 +17,13 @@ class SimpleAgent:
             suit_counts: Counter[Suit] = Counter(card.suit for card in hand)
 
             if top.rank in ranks:
-                round.draw_from_discard()
-                return
+                return round.draw_from_discard(), False
             if suit_counts[top.suit] >= 2:
-                round.draw_from_discard()
-                return
+                return round.draw_from_discard(), False
 
-        round.draw_from_deck()
+        return round.draw_from_deck(), True
 
-    def discard(self, view: View) -> None:
+    def discard(self, view: View) -> Card:
         round: Round = view.round
         hand: Hand = view.hand
         rank_indices: dict[Rank, list[int]] = {}
@@ -39,8 +37,7 @@ class SimpleAgent:
             candidates: list[int] = [i for i in range(len(hand)) if i not in keep]
             if candidates:
                 index: int = min(candidates, key=lambda i: hand[i].value)
-                round.discard(index)
-                return
+                return round.discard(index)
 
         suit_values: dict[Suit, int] = {}
         for card in hand:
@@ -52,10 +49,12 @@ class SimpleAgent:
             candidates = list(range(len(hand)))
 
         index: int = min(candidates, key=lambda i: hand[i].value)
-        round.discard(index)
+        return round.discard(index)
 
-    def stop_the_bus(self, view: View) -> None:
+    def stop_the_bus(self, view: View) -> bool:
         round: Round = view.round
         hand: Hand = view.hand
         if round.can_stop_the_bus() and (is_prile(hand) or flush_value(hand) >= 27):
             round.stop_the_bus()
+            return True
+        return False
