@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict, deque
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -7,6 +8,8 @@ from dataclasses import dataclass
 from stop_the_bus.Card import Card, Rank
 from stop_the_bus.Deck import Deck, deal, empty_deck, shuffled_deck
 from stop_the_bus.Hand import Hand, empty_hand, flush_value, hand_value, is_flush, is_prile
+
+log: logging.Logger = logging.getLogger(__name__)
 
 
 class Game:
@@ -94,15 +97,19 @@ class Round:
         self.discard_pile.append(card)
         if card in self.certain_holds[self._current_index]:
             self.certain_holds[self._current_index].remove(card)
+        log.debug(f"Player #{self.current_player} discarded {card}")
         return card
 
     def draw_from_deck(self) -> Card:
-        return deal(self.deck, self.current_hand)
+        card: Card = deal(self.deck, self.current_hand)
+        log.debug(f"Player #{self.current_player} drew {card} from the deck")
+        return card
 
     def draw_from_discard(self) -> Card:
         card: Card = self.discard_pile.pop()
         self.current_hand.append(card)
         self.certain_holds[self._current_index].append(card)
+        log.debug(f"Player #{self.current_player} drew {card} from the discard pile")
         return card
 
     def stop_the_bus(self) -> None:
