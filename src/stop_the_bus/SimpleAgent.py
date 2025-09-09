@@ -36,19 +36,19 @@ class SimpleAgent:
             keep: set[int] = set(pair_indices[0])
             candidates: list[int] = [i for i in range(len(hand)) if i not in keep]
             if candidates:
-                index: int = min(candidates, key=lambda i: hand[i].value)
+                index: int = min(candidates, key=lambda i: hand[i].score)
                 return round.discard(index)
 
         suit_values: dict[Suit, int] = {}
         for card in hand:
-            suit_values[card.suit] = suit_values.get(card.suit, 0) + card.value
+            suit_values[card.suit] = suit_values.get(card.suit, 0) + card.score
 
         best_suit: Suit = max(suit_values, key=suit_values.__getitem__)
         candidates: list[int] = [i for i in range(len(hand)) if hand[i].suit != best_suit]
         if not candidates:
             candidates = list(range(len(hand)))
 
-        index: int = min(candidates, key=lambda i: hand[i].value)
+        index: int = min(candidates, key=lambda i: hand[i].score)
         return round.discard(index)
 
     def stop_the_bus(self, view: View) -> bool:

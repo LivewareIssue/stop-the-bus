@@ -195,10 +195,11 @@ class Round:
             if i != winner_index:
                 self.game.lives[player] -= penalty
 
-        log.info(
-            f"Players {[self.players[i] for i in range(self.player_count) if i != winner_index]} "
-            f"lose {penalty} {'life' if penalty == 1 else 'lives'}"
-        )
+        losers: list[int] = [self.players[i] for i in range(self.player_count) if i != winner_index]
+        if len(losers) > 1:
+            log.info(f"Players {losers} lose {penalty} {'lives' if penalty > 1 else 'life'}")
+        else:
+            log.info(f"Player {losers[0]} loses {penalty} {'lives' if penalty > 1 else 'life'}")
 
 
 @dataclass(frozen=True, slots=True)

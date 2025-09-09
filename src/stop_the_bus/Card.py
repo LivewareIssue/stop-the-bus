@@ -48,6 +48,16 @@ class Rank(Enum):
     def __repr__(self) -> str:
         return self.__str__()
 
+    @property
+    def score(self) -> int:
+        match self:
+            case Rank.Ace:
+                return 11
+            case Rank.King | Rank.Queen | Rank.Jack:
+                return 10
+            case _:
+                return int(self.value) - 3
+
 
 @dataclass(frozen=True, slots=True)
 class Card:
@@ -55,14 +65,8 @@ class Card:
     rank: Rank
 
     @property
-    def value(self) -> int:
-        match self.rank:
-            case Rank.Jack | Rank.Queen | Rank.King:
-                return 10
-            case Rank.Ace:
-                return 11
-            case _:
-                return int(self.rank.value)
+    def score(self) -> int:
+        return self.rank.score
 
     def __str__(self) -> str:
         return f"{self.rank}{self.suit.value}"

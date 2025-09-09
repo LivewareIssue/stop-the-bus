@@ -8,7 +8,7 @@ def empty_hand() -> Hand:
 
 
 def single_high(hand: Hand) -> int:
-    return max(card.value for card in hand)
+    return max(card.score for card in hand)
 
 
 def suit_count(hand: Hand) -> int:
@@ -20,11 +20,11 @@ def is_flush(hand: Hand) -> bool:
 
 
 def flush_value(hand: Hand) -> int:
-    return sum(card.value for card in hand)
+    return sum(card.score for card in hand)
 
 
 def suit_value(hand: Hand, suit: Suit) -> int:
-    return sum(card.value for card in hand if card.suit == suit)
+    return sum(card.score for card in hand if card.suit == suit)
 
 
 def maximum_suit_value(hand: Hand) -> int:
