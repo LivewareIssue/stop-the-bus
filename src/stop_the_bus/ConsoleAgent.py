@@ -1,3 +1,5 @@
+import logging
+
 from stop_the_bus.Card import Card, Suit
 from stop_the_bus.Deck import Deck
 from stop_the_bus.Game import Round, View
@@ -6,16 +8,53 @@ from stop_the_bus.Hand import Hand
 RED_ANSI = "\x1b[31m"
 BLUE_ANSI = "\x1b[34m"
 RESET_ANSI = "\x1b[0m"
+YELLOW_ANSI = "\x1b[33m"
+
+
+log: logging.Logger = logging.getLogger(__name__)
 
 
 class ConsoleAgent:
-    def begin_turn(self, view: View) -> None:
-        clear_console()
-        print(f"{BLUE_ANSI}Player #{view.player}'s turn:{RESET_ANSI}")
-        _print_bus_stopped(view.round.turns_remaining)
+    __slots__ = ("player", "events_since_last_turn")
+
+    def __init__(self) -> None:
+        self.events_since_last_turn: list[str] = []
+
+    def on_round_start(self) -> None:
+        self.events_since_last_turn.clear()
+
+    def on_turn_start(self, view: View) -> None:
+        for event in self.events_since_last_turn:
+            print(event)
+        self.events_since_last_turn.clear()
+
+        print(f"{BLUE_ANSI}Player {view.player}'s turn{RESET_ANSI}")
+
         if view.round.turn > 0:
             print()
             _print_discard_pile(view.discard_pile)
+
+    def on_turn_end(self, view: View) -> None:
+        clear_console()
+
+    def on_discard(self, agent: int, actor: int, card: Card) -> None:
+        if agent != actor:
+            self.events_since_last_turn.append(f"Player {actor} discarded {_format_card(card)}")
+
+    def on_draw(self, agent: int, actor: int, card: Card, from_deck: bool) -> None:
+        if agent != actor:
+            source: str = "deck" if from_deck else "discard pile"
+            self.events_since_last_turn.append(
+                f"Player {actor} drew "
+                f"{_format_card(card) if not from_deck else 'a card'} "
+                f"from the {source}"
+            )
+
+    def on_stop_the_bus(self, agent: int, actor: int) -> None:
+        if agent != actor:
+            self.events_since_last_turn.append(
+                f"{YELLOW_ANSI}Player {actor} has stopped the bus!{RESET_ANSI}"
+            )
 
     def draw(self, view: View) -> tuple[Card, bool]:
         print()
@@ -38,11 +77,15 @@ def clear_console() -> None:
     print("\033c", end="")
 
 
-def _print_card(card: Card) -> None:
+def _format_card(card: Card) -> str:
     if card.suit in (Suit.Hearts, Suit.Diamonds):
-        print(f"{RED_ANSI}{card}{RESET_ANSI}", end="")
+        return f"{RED_ANSI}{card}{RESET_ANSI}"
     else:
-        print(card, end="")
+        return str(card)
+
+
+def _print_card(card: Card) -> None:
+    print(_format_card(card), end="")
 
 
 def _print_hand(hand: Hand) -> None:
@@ -59,11 +102,6 @@ def _print_discard_pile(discard_pile: Deck) -> None:
         print("Pile: ", end="")
         _print_card(discard_pile[-1])
         print()
-
-
-def _print_bus_stopped(turns_remaining: int | None) -> None:
-    if turns_remaining is not None:
-        print(f"{RED_ANSI}The bus has been stopped!{RESET_ANSI}")
 
 
 def _prompt_stop_the_bus(round: Round) -> bool:

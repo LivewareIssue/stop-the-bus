@@ -213,6 +213,10 @@ class View:
     player_index: int
 
     @property
+    def is_viewer_turn(self) -> bool:
+        return self.round.current_index == self.player_index
+
+    @property
     def turn(self) -> int:
         """The current turn number, starting at 0."""
         return self.round.turn

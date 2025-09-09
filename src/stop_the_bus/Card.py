@@ -56,7 +56,7 @@ class Rank(Enum):
             case Rank.King | Rank.Queen | Rank.Jack:
                 return 10
             case _:
-                return int(self.value) - 3
+                return int(self.value)
 
 
 @dataclass(frozen=True, slots=True)
