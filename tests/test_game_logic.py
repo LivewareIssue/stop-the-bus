@@ -6,7 +6,16 @@ from hypothesis.strategies import from_type
 
 from stop_the_bus.Card import Card, Rank, Suit
 from stop_the_bus.Deck import Deck, deal, standard_deck
-from stop_the_bus.Hand import Hand, hand_value, is_flush, is_prile, single_high, suit_count
+from stop_the_bus.Game import Game, Round, View
+from stop_the_bus.Hand import (
+    Hand,
+    flush_value,
+    hand_value,
+    is_flush,
+    is_prile,
+    single_high,
+    suit_count,
+)
 
 
 @st.composite
@@ -57,6 +66,7 @@ def known_high_card_hand(draw: st.DrawFn) -> tuple[Hand, Card]:
     return hand, high_card
 
 
+@st.composite
 def fixed_suit_count_hand(draw: st.DrawFn, suit_count: int) -> Hand:
     suits: deque[Suit] = deque(
         draw(st.lists(from_type(Suit), min_size=suit_count, max_size=suit_count, unique=True))
@@ -85,7 +95,7 @@ def fixed_suit_count_hand(draw: st.DrawFn, suit_count: int) -> Hand:
 @st.composite
 def known_suit_count_hand(draw: st.DrawFn) -> tuple[Hand, int]:
     suit_count: int = draw(st.integers(min_value=1, max_value=4))
-    hand: Hand = fixed_suit_count_hand(draw, suit_count)
+    hand: Hand = draw(fixed_suit_count_hand(suit_count))
 
     assert len(hand) == 3 or len(hand) == 4
     assert len({card.suit for card in hand}) == suit_count
@@ -109,7 +119,7 @@ def known_flush_hand(draw: st.DrawFn) -> Hand:
 @st.composite
 def known_not_flush_hand(draw: st.DrawFn) -> Hand:
     suit_count: int = draw(st.integers(min_value=2, max_value=4))
-    hand: Hand = fixed_suit_count_hand(draw, suit_count)
+    hand: Hand = draw(fixed_suit_count_hand(suit_count))
 
     assert len(hand) == 3 or len(hand) == 4
     assert len({card.suit for card in hand}) > 1
@@ -198,6 +208,17 @@ def hand(draw: st.DrawFn) -> Hand:
     return draw(st.lists(from_type(Card), min_size=0, max_size=4, unique=True))
 
 
+@st.composite
+def lives(draw: st.DrawFn, player_count: int, min_lives: int = 0) -> list[int]:
+    return draw(
+        st.lists(
+            st.integers(min_value=min_lives, max_value=5),
+            min_size=player_count,
+            max_size=player_count,
+        )
+    )
+
+
 @given(from_type(Card))
 def test_card_value(card: Card) -> None:
     match card.rank:
@@ -284,3 +305,212 @@ def test_deal(deck: Deck, hand: Hand) -> None:
     assert card in hand
     assert len(deck) == deck_size - 1
     assert len(hand) == hand_size + 1
+
+
+EXPECTED_FIRST_PLAYER_HAND_COUNT: int = 4
+EXPECTED_OTHER_PLAYER_HAND_COUNT: int = 3
+
+
+@given(st.integers(min_value=2, max_value=6))
+def test_round_initialisation(player_count: int) -> None:
+    game: Game = Game(player_count)
+    round: Round = game.start_round()
+
+    # Ensure the round has the expected number of players
+    assert len(round.players) == player_count
+
+    # Ensure there are the same number of hands as players
+    assert len(round.hands) == player_count
+
+    # Ensure the first player has 4 cards, and the rest have 3
+    assert len(round.hands[0]) == EXPECTED_FIRST_PLAYER_HAND_COUNT
+    for i in range(1, player_count):
+        assert len(round.hands[i]) == EXPECTED_OTHER_PLAYER_HAND_COUNT
+
+    # Ensure the discard pile is empty
+    assert len(round.discard_pile) == 0
+
+    # Ensure the deck has the expected number of cards
+    expected_hand_count: int = EXPECTED_FIRST_PLAYER_HAND_COUNT + (
+        EXPECTED_OTHER_PLAYER_HAND_COUNT * (player_count - 1)
+    )
+    assert len(round.deck) == len(standard_deck()) - expected_hand_count
+
+    # Ensure the turn is set to 0
+    assert round.turn == 0
+
+    # Ensure the current player is the first player
+    assert round.current_player == round.players[0]
+
+    # Ensure all dealt cards are unique
+    dealt_cards: set[Card] = {card for hand in round.hands for card in hand}
+    assert len(dealt_cards) == expected_hand_count
+
+    # Ensure the cards remaining in the deck are unique
+    assert len(set(round.deck)) == len(round.deck)
+
+    # Ensure no cards are duplicated between hands and the deck
+    assert len(dealt_cards.intersection(set(round.deck))) == 0
+
+
+@given(st.integers(min_value=2, max_value=6), st.integers(min_value=0, max_value=3))
+def test_discard_moves_card(player_count: int, card_index: int) -> None:
+    game: Game = Game(player_count)
+    round: Round = game.start_round()
+    card: Card = round.discard(card_index)
+
+    assert card not in round.current_hand
+    assert card in round.discard_pile
+    assert len(round.discard_pile) == 1
+    assert len(round.current_hand) == EXPECTED_FIRST_PLAYER_HAND_COUNT - 1
+
+
+@given(st.integers(min_value=2, max_value=6))
+def test_draw_from_deck(player_count: int) -> None:
+    game: Game = Game(player_count)
+    round: Round = game.start_round()
+    deck_size: int = len(round.deck)
+    hand_size: int = len(round.current_hand)
+    card: Card = round.draw_from_deck()
+
+    assert card in round.current_hand
+    assert len(round.deck) == deck_size - 1
+    assert len(round.current_hand) == hand_size + 1
+
+
+@given(st.integers(min_value=2, max_value=6), st.integers(min_value=0, max_value=3))
+def test_draw_from_discard_adds_certain_hold(player_count: int, card_index: int) -> None:
+    game: Game = Game(player_count)
+    round: Round = game.start_round()
+    card: Card = round.discard(card_index)
+    round.advance_turn()
+    drawn_card: Card = round.draw_from_discard()
+
+    assert drawn_card == card
+    assert drawn_card in round.current_hand
+    assert drawn_card in round.certain_holds[round.current_index]
+    assert len(round.discard_pile) == 0
+
+
+@given(st.integers(min_value=2, max_value=6), st.integers(min_value=0, max_value=3))
+def test_discard_removes_certain_hold(player_count: int, card_index: int) -> None:
+    game: Game = Game(player_count)
+    round: Round = game.start_round()
+    round.discard(card_index)
+    round.advance_turn()
+
+    drawn_card: Card = round.draw_from_discard()
+
+    # Ensure the card drawn from the discard pile is in certain holds
+    assert drawn_card in round.certain_holds[round.current_index]
+
+    drawn_card_index: int = round.current_hand.index(drawn_card)
+    round.discard(drawn_card_index)
+
+    # Ensure the discarded card is no longer in certain holds
+    assert drawn_card not in round.certain_holds[round.current_index]
+
+
+@given(known_flush_hand().filter(lambda h: flush_value(h) >= 21))
+def test_can_stop_bus_with_high_flush(hand: Hand) -> None:
+    game: Game = Game(1)
+    round: Round = game.start_round()
+    round.hands[0] = hand
+    assert round.can_stop_the_bus()
+
+
+@given(known_flush_hand().filter(lambda h: flush_value(h) < 21))
+def test_can_stop_bus_with_low_flush(hand: Hand) -> None:
+    game: Game = Game(1)
+    round: Round = game.start_round()
+    round.hands[0] = hand
+    assert not round.can_stop_the_bus()
+
+
+@given(known_prile_hand())
+def test_can_stop_bus_with_prile(hand: Hand) -> None:
+    game: Game = Game(1)
+    round: Round = game.start_round()
+    round.hands[0] = hand
+    assert round.can_stop_the_bus()
+
+
+@given(known_not_flush_hand().filter(lambda h: not is_prile(h)))
+def test_cannot_stop_bus_without_flush_or_prile(hand: Hand) -> None:
+    game: Game = Game(1)
+    round: Round = game.start_round()
+    round.hands[0] = hand
+    assert not round.can_stop_the_bus()
+
+
+PRILE_OF_THREES_PENALTY: int = 2
+
+
+@given(
+    known_prile_of_threes(), known_not_prile_hand(), known_not_prile_hand(), lives(3, min_lives=1)
+)
+def test_end_round_prile_of_threes_penalty(
+    winner_hand: Hand, hand1: Hand, hand2: Hand, lives: list[int]
+) -> None:
+    player_count: int = 3
+    expected_lives: list[int] = lives.copy()
+
+    game: Game = Game(player_count)
+    game.lives = lives
+
+    round: Round = game.start_round()
+    round.hands = [winner_hand, hand1, hand2]
+
+    round.end_round()
+    winner: int = round.players[0]
+
+    for player_index in range(player_count):
+        if player_index != winner:
+            expected_lives[player_index] -= PRILE_OF_THREES_PENALTY
+
+    assert game.lives == expected_lives
+
+
+PRILE_PENALTY: int = 1
+
+
+@given(
+    known_prile_of_not_threes(),
+    known_not_prile_hand(),
+    known_not_prile_hand(),
+    lives(3, min_lives=1),
+)
+def test_end_round_prile_of_not_threes_penalty(
+    winner_hand: Hand, hand1: Hand, hand2: Hand, lives: list[int]
+) -> None:
+    player_count: int = 3
+    expected_lives: list[int] = lives.copy()
+
+    game: Game = Game(player_count)
+    game.lives = lives
+
+    round: Round = game.start_round()
+    round.hands = [winner_hand, hand1, hand2]
+
+    round.end_round()
+    winner: int = round.players[0]
+
+    for player_index in range(player_count):
+        if player_index != winner:
+            expected_lives[player_index] -= PRILE_PENALTY
+
+    assert game.lives == expected_lives
+
+
+@given(st.integers(min_value=2, max_value=6))
+def test_view_reports_certain_holds(player_count: int) -> None:
+    game: Game = Game(player_count)
+    round: Round = game.start_round()
+    card: Card = round.current_hand[0]
+    round.discard(0)
+    round.draw_from_discard()
+    view: View = View(round, 1)
+    assert view.certain_holds == {round.players[0]: [card]}
+    assert view.player == round.players[1]
+    assert view.hand == round.hands[1]
+    assert view.turn == round.turn

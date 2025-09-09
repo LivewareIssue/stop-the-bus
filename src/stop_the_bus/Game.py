@@ -85,16 +85,16 @@ class Round:
         return len(self.players)
 
     @property
-    def _current_index(self) -> int:
+    def current_index(self) -> int:
         return self.turn % self.player_count
 
     @property
     def current_player(self) -> int:
-        return self.players[self._current_index]
+        return self.players[self.current_index]
 
     @property
     def current_hand(self) -> Hand:
-        return self.hands[self._current_index]
+        return self.hands[self.current_index]
 
     @property
     def bus_is_stopped(self) -> bool:
@@ -105,13 +105,13 @@ class Round:
         return self.turns_remaining is None or self.turns_remaining > 0
 
     def current_view(self) -> View:
-        return View(self, self._current_index)
+        return View(self, self.current_index)
 
     def discard(self, card_index: int) -> Card:
         card: Card = self.current_hand.pop(card_index)
         self.discard_pile.append(card)
-        if card in self.certain_holds[self._current_index]:
-            self.certain_holds[self._current_index].remove(card)
+        if card in self.certain_holds[self.current_index]:
+            self.certain_holds[self.current_index].remove(card)
         log.info(f"Player {self.current_player} discarded {card}")
         return card
 
@@ -135,7 +135,7 @@ class Round:
     def draw_from_discard(self) -> Card:
         card: Card = self.discard_pile.pop()
         self.current_hand.append(card)
-        self.certain_holds[self._current_index].append(card)
+        self.certain_holds[self.current_index].append(card)
         log.info(f"Player {self.current_player} drew {card} from the discard pile")
         return card
 
