@@ -30,10 +30,17 @@ class Game:
         players.rotate(-self.dealer - 1)
         return (p for p in players if self.lives[p] > 0)
 
+    @property
+    def live_player_count(self) -> int:
+        return sum(1 for _ in self.live_players)
+
     def rotate_dealer(self) -> None:
         self.dealer = next(self.live_players)
 
     def start_round(self) -> Round:
+        log.debug(f"Starting round with players: {list(self.live_players)}")
+        for _ in range(self.live_player_count):
+            log.debug(f"Player #{_} has {self.lives[_]} lives remaining")
         return Round(self, list(self.live_players))
 
 
