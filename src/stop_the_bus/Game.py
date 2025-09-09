@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 from collections import defaultdict, deque
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -19,9 +20,9 @@ class Game:
         "dealer",
     )
 
-    def __init__(self, player_count: int) -> None:
+    def __init__(self, player_count: int, lives: int = 5) -> None:
         self.player_count: int = player_count
-        self.lives: list[int] = [5] * player_count
+        self.lives: list[int] = [lives] * player_count
         self.dealer: int = 0
 
     @property
@@ -35,12 +36,19 @@ class Game:
         return sum(1 for _ in self.live_players)
 
     def rotate_dealer(self) -> None:
+        if self.live_player_count == 0:
+            log.warning("No live players to rotate dealer to")
+            return
         self.dealer = next(self.live_players)
 
     def start_round(self) -> Round:
-        log.debug(f"Starting round with players: {list(self.live_players)}")
-        for _ in range(self.live_player_count):
-            log.debug(f"Player #{_} has {self.lives[_]} lives remaining")
+        log.info(f"Dealing to players: {list(self.live_players)}")
+        for i in range(self.player_count):
+            if self.lives[i] > 0:
+                log.info(
+                    f"Player {i} has {self.lives[i]} "
+                    f"{'life' if self.lives[i] == 1 else 'lives'} remaining"
+                )
         return Round(self, list(self.live_players))
 
 
@@ -104,23 +112,36 @@ class Round:
         self.discard_pile.append(card)
         if card in self.certain_holds[self._current_index]:
             self.certain_holds[self._current_index].remove(card)
-        log.debug(f"Player #{self.current_player} discarded {card}")
+        log.info(f"Player {self.current_player} discarded {card}")
         return card
 
     def draw_from_deck(self) -> Card:
+        if (len(self.deck)) == 0:
+            log.warning("Deck is empty, reshuffling discard pile into deck")
+            self.reshuffle(self.deck, self.discard_pile)
+
         card: Card = deal(self.deck, self.current_hand)
-        log.debug(f"Player #{self.current_player} drew {card} from the deck")
+        log.info(f"Player {self.current_player} drew {card} from the deck")
         return card
+
+    def reshuffle(self, deck: Deck, discard_pile: Deck) -> None:
+        top_card: Card = discard_pile.pop()
+        cards: list[Card] = list(discard_pile)
+        random.shuffle(cards)
+        deck.extend(cards)
+        discard_pile.clear()
+        discard_pile.append(top_card)
 
     def draw_from_discard(self) -> Card:
         card: Card = self.discard_pile.pop()
         self.current_hand.append(card)
         self.certain_holds[self._current_index].append(card)
-        log.debug(f"Player #{self.current_player} drew {card} from the discard pile")
+        log.info(f"Player {self.current_player} drew {card} from the discard pile")
         return card
 
     def stop_the_bus(self) -> None:
         self.turns_remaining = self.player_count
+        log.info(f"Player {self.current_player} stopped the bus")
 
     def can_stop_the_bus(self) -> bool:
         hand: Hand = self.current_hand
@@ -134,6 +155,9 @@ class Round:
             self.turns_remaining -= 1
 
     def end_round(self) -> None:
+        for i, hand in enumerate(self.hands):
+            log.info(f"Player {self.players[i]}'s hand: {hand}")
+
         players_to_scores: dict[int, int] = {
             player_index: hand_value(hand) for player_index, hand in enumerate(self.hands)
         }
@@ -146,6 +170,8 @@ class Round:
         [winning_player_index] = scores_to_player_indices[high_score]
         winning_hand: Hand = self.hands[winning_player_index]
 
+        log.info(f"Player {self.players[winning_player_index]} wins the round!")
+
         if is_prile(winning_hand):
             [rank] = {card.rank for card in winning_hand}
             self.prile_penalty(winning_player_index, rank)
@@ -155,6 +181,11 @@ class Round:
             self.standard_penalty(loser_indices)
 
     def standard_penalty(self, loser_indices: list[int]) -> None:
+        if len(loser_indices) > 1:
+            log.info(f"Players {[self.players[i] for i in loser_indices]} lose a life")
+        else:
+            log.info(f"Player {self.players[loser_indices[0]]} loses a life")
+
         for i in loser_indices:
             self.game.lives[self.players[i]] -= 1
 
@@ -163,6 +194,11 @@ class Round:
         for i, player in enumerate(self.players):
             if i != winner_index:
                 self.game.lives[player] -= penalty
+
+        log.info(
+            f"Players {[self.players[i] for i in self.players if i != winner_index]} "
+            f"lose {penalty} {'life' if penalty == 1 else 'lives'}"
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,4 +21,4 @@ for ((i=${#sorted[@]}-1; i>=0; i--)); do
   fi
 done
 
-exec tail -f -- "$latest"
+exec grc -c conf.cards tail -n +1 -F -- "$latest"

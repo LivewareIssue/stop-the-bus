@@ -62,7 +62,7 @@ def setup_logging(
     file_handler = logging.FileHandler(log_file, encoding="utf-8", delay=True)
     file_handler.setLevel(logging.DEBUG)
 
-    fmt = "%(asctime)s.%(msecs)03dZ | [%(levelname)s] %(message)s"
+    fmt = "%(asctime)s %(levelname)s %(message)s"
     datefmt = "%Y-%m-%dT%H:%M:%S"
 
     formatter = UTCFormatter(fmt=fmt, datefmt=datefmt)

@@ -46,8 +46,9 @@ def _print_card(card: Card) -> None:
 
 
 def _print_hand(hand: Hand) -> None:
+    hand.sort(key=lambda c: (c.suit.value, c.rank.value))
     print("Hand: ", end="")
-    for card in hand:
+    for card in sorted(hand, key=lambda c: (c.suit.value, c.rank.value)):
         _print_card(card)
         print(" ", end="")
     print()
