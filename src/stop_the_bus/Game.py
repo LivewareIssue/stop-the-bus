@@ -167,18 +167,23 @@ class Round:
             scores_to_player_indices[score].append(player_index)
 
         high_score: int = max(scores_to_player_indices.keys())
-        [winning_player_index] = scores_to_player_indices[high_score]
-        winning_hand: Hand = self.hands[winning_player_index]
 
-        log.info(f"Player {self.players[winning_player_index]} wins the round!")
+        winning_player_indices: list[int] = scores_to_player_indices[high_score]
 
-        if is_prile(winning_hand):
-            [rank] = {card.rank for card in winning_hand}
-            self.prile_penalty(winning_player_index, rank)
+        if len(winning_player_indices) == 1:
+            [winning_player_index] = scores_to_player_indices[high_score]
+            log.info(f"Player {self.players[winning_player_index]} wins the round!")
+            winning_hand: Hand = self.hands[winning_player_index]
+            if is_prile(winning_hand):
+                [rank] = {card.rank for card in winning_hand}
+                self.prile_penalty(winning_player_index, rank)
+                return
         else:
-            low_score: int = min(scores_to_player_indices.keys())
-            loser_indices: list[int] = scores_to_player_indices[low_score]
-            self.standard_penalty(loser_indices)
+            log.info(f"Players {[self.players[i] for i in winning_player_indices]} tie for the win")
+
+        low_score: int = min(scores_to_player_indices.keys())
+        loser_indices: list[int] = scores_to_player_indices[low_score]
+        self.standard_penalty(loser_indices)
 
     def standard_penalty(self, loser_indices: list[int]) -> None:
         if len(loser_indices) > 1:

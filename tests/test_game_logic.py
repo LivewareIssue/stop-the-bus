@@ -514,3 +514,39 @@ def test_view_reports_certain_holds(player_count: int) -> None:
     assert view.player == round.players[1]
     assert view.hand == round.hands[1]
     assert view.turn == round.turn
+
+
+def test_end_round_handles_tie_without_prile() -> None:
+    player_count: int = 3
+    game: Game = Game(player_count)
+    game.lives = [3, 3, 3]
+
+    round: Round = game.start_round()
+
+    hand_a: Hand = [
+        Card(Suit.Spades, Rank.Ace),
+        Card(Suit.Spades, Rank.King),
+        Card(Suit.Spades, Rank.Queen),
+    ]
+    hand_b: Hand = [
+        Card(Suit.Hearts, Rank.Ace),
+        Card(Suit.Hearts, Rank.King),
+        Card(Suit.Hearts, Rank.Queen),
+    ]
+    hand_c: Hand = [
+        Card(Suit.Spades, Rank.Five),
+        Card(Suit.Spades, Rank.Seven),
+        Card(Suit.Spades, Rank.Nine),
+    ]
+
+    assert hand_value(hand_a) == hand_value(hand_b)
+    assert hand_value(hand_a) > hand_value(hand_c)
+
+    round.hands = [hand_a, hand_b, hand_c]
+    round.end_round()
+
+    expected_lives: list[int] = [3, 3, 3]
+    loser: int = round.players[2]
+    expected_lives[loser] -= 1
+
+    assert game.lives == expected_lives
