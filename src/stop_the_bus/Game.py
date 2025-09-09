@@ -196,7 +196,7 @@ class Round:
                 self.game.lives[player] -= penalty
 
         log.info(
-            f"Players {[self.players[i] for i in self.players if i != winner_index]} "
+            f"Players {[self.players[i] for i in range(self.player_count) if i != winner_index]} "
             f"lose {penalty} {'life' if penalty == 1 else 'lives'}"
         )
 

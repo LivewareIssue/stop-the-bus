@@ -11,7 +11,7 @@ from uuid import uuid4
 
 
 class UTCFormatter(logging.Formatter):
-    converter = time.gmtime
+    converter = staticmethod(time.gmtime)
 
 
 class ContextFilter(logging.Filter):

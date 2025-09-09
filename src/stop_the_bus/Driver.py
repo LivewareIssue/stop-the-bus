@@ -21,6 +21,9 @@ class Driver:
             round: Round = self.game.start_round()
             self._drive_first_turn(round)
             while round.has_turns_remaining:
+                if round.turn > 100:
+                    log.error("Maximum turn limit reached, aborting game")
+                    return -1
                 self._drive_turn(round)
             round.end_round()
             self.game.rotate_dealer()
