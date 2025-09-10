@@ -11,13 +11,14 @@ setup_logging(level="DEBUG")
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    temperature: float = 0.2
     agents: list[Agent] = [
-        NeuralAgent(ViewModule(device=device), greedy=False, temperature=0.5),
-        NeuralAgent(ViewModule(device=device), greedy=False, temperature=0.5),
-        NeuralAgent(ViewModule(device=device), greedy=False, temperature=0.5),
-        NeuralAgent(ViewModule(device=device), greedy=False, temperature=0.5),
+        NeuralAgent(ViewModule(device=device), greedy=False, temperature=temperature),
+        NeuralAgent(ViewModule(device=device), greedy=False, temperature=temperature),
+        NeuralAgent(ViewModule(device=device), greedy=False, temperature=temperature),
+        NeuralAgent(ViewModule(device=device), greedy=False, temperature=temperature),
     ]
-    driver: Driver = Driver(agents, max_turn_count=100)
+    driver: Driver = Driver(agents, max_turn_count=300)
     driver.drive()
 
 
