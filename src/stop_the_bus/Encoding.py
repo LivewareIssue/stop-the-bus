@@ -8,9 +8,13 @@ from stop_the_bus.Deck import DECK_SIZE, standard_deck
 from stop_the_bus.Game import View
 from stop_the_bus.Hand import MAX_HAND_SIZE, Hand
 
+DEFAULT_DEVICE: torch.device = torch.device("cpu")
 
-def encode_hand(hand: Hand, dtype: torch.dtype = torch.float32) -> torch.Tensor:
-    tensor: torch.Tensor = torch.zeros(52, dtype=dtype)
+
+def encode_hand(
+    hand: Hand, dtype: torch.dtype = torch.float32, device: torch.device = DEFAULT_DEVICE
+) -> torch.Tensor:
+    tensor: torch.Tensor = torch.zeros(52, dtype=dtype, device=device)
     for card in hand:
         tensor[card.index] = 1
 
@@ -27,11 +31,13 @@ def decode_hand(tensor: torch.Tensor) -> Hand:
     return hand
 
 
-def encode_card(card: Card) -> torch.Tensor:
-    rank_one_hot: torch.Tensor = torch.zeros(len(Rank), dtype=torch.float32)
+def encode_card(
+    card: Card, dtype: torch.dtype = torch.float32, device: torch.device = DEFAULT_DEVICE
+) -> torch.Tensor:
+    rank_one_hot: torch.Tensor = torch.zeros(len(Rank), dtype=torch.float32, device=device)
     rank_one_hot[card.rank.index] = 1
 
-    suit_one_hot: torch.Tensor = torch.zeros(4, dtype=torch.float32)
+    suit_one_hot: torch.Tensor = torch.zeros(4, dtype=torch.float32, device=device)
     suit_one_hot[card.suit.index] = 1
 
     return torch.cat((rank_one_hot, suit_one_hot))
@@ -52,12 +58,18 @@ def decode_card(tensor: torch.Tensor) -> Card:
     return Card(suit, rank)
 
 
-def feature_matrices() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def feature_matrices(
+    dtype: torch.dtype = torch.float32, device: torch.device = DEFAULT_DEVICE
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     hand_rank_count_matrix: torch.Tensor = torch.zeros(
-        (DECK_SIZE, Rank.size()), dtype=torch.float32
+        (DECK_SIZE, Rank.size()), dtype=dtype, device=device
     )
-    hand_suit_count_matrix: torch.Tensor = torch.zeros(DECK_SIZE, Suit.size(), dtype=torch.float32)
-    hand_rank_sum_matrix: torch.Tensor = torch.zeros((DECK_SIZE, Suit.size()), dtype=torch.float32)
+    hand_suit_count_matrix: torch.Tensor = torch.zeros(
+        DECK_SIZE, Suit.size(), dtype=dtype, device=device
+    )
+    hand_rank_sum_matrix: torch.Tensor = torch.zeros(
+        (DECK_SIZE, Suit.size()), dtype=dtype, device=device
+    )
 
     for card in standard_deck():
         hand_rank_count_matrix[card.index, card.rank.index] = 1
@@ -71,25 +83,31 @@ def feature_matrices() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     )
 
 
-HAND_RANK_COUNT_MATRIX, HAND_SUIT_COUNT_MATRIX, HAND_RANK_SUM_MATRIX = feature_matrices()
-
-
 class Phase(IntEnum):
     DRAW = auto()
     DISCARD = auto()
     STOP = auto()
 
 
-def encode_view(view: View, phase: Phase) -> torch.Tensor:
-    hand_tensor: torch.Tensor = encode_hand(view.hand, dtype=torch.float32)
-    hand_rank_count_tensor: torch.Tensor = hand_tensor @ HAND_RANK_COUNT_MATRIX
-    hand_suit_count_tensor: torch.Tensor = hand_tensor @ HAND_SUIT_COUNT_MATRIX
-    hand_rank_sum_tensor: torch.Tensor = hand_tensor @ HAND_RANK_SUM_MATRIX
+def encode_view(
+    view: View,
+    phase: Phase,
+    dtype: torch.dtype = torch.float32,
+    device: torch.device = DEFAULT_DEVICE,
+) -> torch.Tensor:
+    hand_tensor: torch.Tensor = encode_hand(view.hand, dtype=dtype, device=device)
+    hand_rank_count_matrix, hand_suit_count_matrix, hand_rank_sum_matrix = feature_matrices(
+        dtype=dtype, device=device
+    )
+
+    hand_rank_count_tensor: torch.Tensor = hand_tensor @ hand_rank_count_matrix
+    hand_suit_count_tensor: torch.Tensor = hand_tensor @ hand_suit_count_matrix
+    hand_rank_sum_tensor: torch.Tensor = hand_tensor @ hand_rank_sum_matrix
     discard_tensor: torch.Tensor = (
-        encode_card(view.discard_pile[-1])
+        encode_card(view.discard_pile[-1], dtype=dtype, device=device)
         if view.discard_pile
         else torch.zeros(
-            ViewModule.DISCARD_RANK_DIM + ViewModule.DISCARD_SUIT_DIM, dtype=torch.float32
+            ViewModule.DISCARD_RANK_DIM + ViewModule.DISCARD_SUIT_DIM, dtype=dtype, device=device
         )
     )
     flag_tensor: torch.Tensor = torch.tensor(
@@ -100,6 +118,7 @@ def encode_view(view: View, phase: Phase) -> torch.Tensor:
             float(view.bus_is_stopped),
         ],
         dtype=torch.float32,
+        device=device,
     )
 
     return torch.cat(
@@ -156,21 +175,25 @@ class ViewModule(nn.Module):
         BUS_STOPPED_DIM,
     ]
 
+    # INPUT_INDICES: list[int] = cumsum
+
     INPUT_DIM: int = sum(INPUT_DIMS)
 
-    def __init__(self, hidden_dim: int = 128) -> None:
+    def __init__(self, hidden_dim: int = 128, device: torch.device = DEFAULT_DEVICE) -> None:
         super().__init__()  # type: ignore
+        self.device: torch.device = device
         self.backbone = nn.Sequential(
-            nn.Linear(self.INPUT_DIM, hidden_dim),
+            nn.Linear(self.INPUT_DIM, hidden_dim, device=device),
             nn.ReLU(),
-            nn.LayerNorm(hidden_dim),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim, device=device),
+            nn.Linear(hidden_dim, hidden_dim, device=device),
             nn.ReLU(),
         )
+        self.draw_head = nn.Linear(hidden_dim, 2, device=device)
+        self.discard_head = nn.Linear(hidden_dim, MAX_HAND_SIZE, device=device)
+        self.stop_head = nn.Linear(hidden_dim, 2, device=device)
 
-        self.draw_head = nn.Linear(hidden_dim, 2)
-        self.discard_head = nn.Linear(hidden_dim, MAX_HAND_SIZE)
-        self.stop_head = nn.Linear(hidden_dim, 2)
+        self.apply(self._init)
 
     @staticmethod
     def _init(module: nn.Module) -> None:
@@ -178,16 +201,18 @@ class ViewModule(nn.Module):
             nn.init.kaiming_uniform_(module.weight, nonlinearity="relu")
             nn.init.zeros_(module.bias)
 
-    def forward(self, view: View, phase: Phase) -> dict[str, torch.Tensor]:
-        view_tensor: torch.Tensor = encode_view(view, phase)
+    def forward(self, view: View, phase: Phase) -> torch.Tensor:
+        view_tensor: torch.Tensor = encode_view(view, phase, device=self.device)
 
         if view_tensor.dim() == 1:
             view_tensor = view_tensor.unsqueeze(0)
 
         x = self.backbone(view_tensor)
 
-        return {
-            "draw_logits": self.draw_head(x),
-            "discard_logits": self.discard_head(x),
-            "stop_logits": self.stop_head(x),
-        }
+        match phase:
+            case Phase.DRAW:
+                return self.draw_head(x)
+            case Phase.DISCARD:
+                return self.discard_head(x)
+            case Phase.STOP:
+                return self.stop_head(x)

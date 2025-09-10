@@ -1,8 +1,17 @@
+import logging
+
 import torch
 
 from stop_the_bus.Card import Card
 from stop_the_bus.Encoding import Phase, ViewModule
 from stop_the_bus.Game import View
+
+DEFAULT_GREEDY: bool = True
+DEFAULT_TEMPERATURE: float = 1.0
+DEFAULT_EPSILON: float = 0.0
+
+
+log: logging.Logger = logging.getLogger(__name__)
 
 
 class NeuralAgent:
@@ -11,21 +20,20 @@ class NeuralAgent:
     def __init__(
         self,
         net: ViewModule,
-        device: str = "cpu",
-        greedy: bool = True,
-        temperature: float = 1.0,
-        epsilon: float = 0.0,
+        greedy: bool = DEFAULT_GREEDY,
+        temperature: float = DEFAULT_TEMPERATURE,
+        epsilon: float = DEFAULT_EPSILON,
     ) -> None:
-        self.net: ViewModule = net.to(device)
-        self.device: str = device
+        self.device: torch.device = net.device
+        self.net: ViewModule = net
         self.net.eval()
         self.greedy: bool = greedy
         self.temperature: float = temperature
         self.epsilon: float = epsilon
 
-    def _forward(self, view: View, phase: Phase) -> dict[str, torch.Tensor]:
+    def _forward(self, view: View, phase: Phase) -> torch.Tensor:
         with torch.no_grad():
-            return self.net.forward(view, phase)
+            return self.net(view, phase)
 
     def _act_random(self, x: torch.Tensor, mask: torch.Tensor | None) -> int:
         if mask is None:
@@ -54,8 +62,7 @@ class NeuralAgent:
         return int(torch.multinomial(p, num_samples=1).item())
 
     def draw(self, view: View) -> tuple[Card, bool]:
-        output: dict[str, torch.Tensor] = self._forward(view, Phase.DRAW)
-        logits: torch.Tensor = output["draw_logits"]
+        logits: torch.Tensor = self._forward(view, Phase.DRAW)
         action: int = self._act(logits, None)
         take_deck: bool = action == 0
 
@@ -65,8 +72,7 @@ class NeuralAgent:
         return view.round.draw_from_discard(), take_deck
 
     def discard(self, view: View) -> Card:
-        output: dict[str, torch.Tensor] = self._forward(view, Phase.DISCARD)
-        logits: torch.Tensor = output["discard_logits"]
+        logits: torch.Tensor = self._forward(view, Phase.DISCARD)
         valid_mask: torch.Tensor = torch.zeros(
             logits.shape[-1], dtype=torch.bool, device=logits.device
         )
@@ -76,8 +82,12 @@ class NeuralAgent:
         return view.round.discard(index)
 
     def stop_the_bus(self, view: View) -> bool:
-        output: dict[str, torch.Tensor] = self._forward(view, Phase.STOP)
-        logits: torch.Tensor = output["stop_logits"]
+        logits: torch.Tensor = self._forward(view, Phase.STOP)
         action: int = self._act(logits, None)
+
+        log.debug(f"Player {view.player}'s hand: {view.hand}")
+        log.debug(
+            f"Player {view.player} {'can' if view.can_stop_the_bus else 'cannot'} stop the bus"
+        )
 
         return action == 0

@@ -8,7 +8,7 @@ from stop_the_bus.Game import Game, Round, View
 log: Logger = logging.getLogger(__name__)
 
 
-MAX_TURN_COUNT: int = 100
+MAX_TURN_COUNT: int = 500
 
 
 class Driver:
