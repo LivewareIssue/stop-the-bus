@@ -8,6 +8,9 @@ from stop_the_bus.Game import Game, Round, View
 log: Logger = logging.getLogger(__name__)
 
 
+MAX_TURN_COUNT: int = 100
+
+
 class Driver:
     __slots__ = ("agents", "game")
 
@@ -27,7 +30,7 @@ class Driver:
 
             self._drive_first_turn(round)
             while round.has_turns_remaining:
-                if round.turn > 100:
+                if round.turn > MAX_TURN_COUNT:
                     log.error("Maximum turn limit reached, aborting game")
                     return -1
                 self._drive_turn(round)

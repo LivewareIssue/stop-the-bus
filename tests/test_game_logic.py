@@ -1,13 +1,23 @@
 from collections import deque
 
 import hypothesis.strategies as st
+import torch
 from hypothesis import given
 from hypothesis.strategies import from_type
 
 from stop_the_bus.Card import Card, Rank, Suit
 from stop_the_bus.Deck import Deck, deal, standard_deck
+from stop_the_bus.Encoding import (
+    MAX_RANK_SUM,
+    decode_card,
+    decode_hand,
+    encode_card,
+    encode_hand,
+    feature_matrices,
+)
 from stop_the_bus.Game import Game, Round, View
 from stop_the_bus.Hand import (
+    MAX_HAND_SIZE,
     Hand,
     flush_value,
     hand_value,
@@ -145,8 +155,8 @@ def known_prile_hand(draw: st.DrawFn) -> Hand:
 
 
 @st.composite
-def known_not_prile_hand(draw: st.DrawFn) -> Hand:
-    hand_size: int = draw(st.sampled_from([3, 4]))
+def known_not_prile_hand(draw: st.DrawFn, hand_size: int | None = None) -> Hand:
+    hand_size = hand_size or draw(st.sampled_from([3, 4]))
     patterns: list[tuple[int, ...]] = (
         [(2, 1), (1, 1, 1)] if hand_size == 3 else [(3, 1), (2, 2), (2, 1, 1), (1, 1, 1, 1)]
     )
@@ -183,8 +193,10 @@ def known_prile_of_threes(draw: st.DrawFn) -> Hand:
 
 
 @st.composite
-def known_prile_of_not_threes(draw: st.DrawFn) -> Hand:
-    suits: list[Suit] = draw(st.lists(from_type(Suit), min_size=3, max_size=4, unique=True))
+def known_prile_of_not_threes(draw: st.DrawFn, hand_size: int | None = None) -> Hand:
+    suits: list[Suit] = draw(
+        st.lists(from_type(Suit), min_size=hand_size or 3, max_size=4, unique=True)
+    )
     rank: Rank = draw(st.sampled_from([r for r in Rank if r != Rank.Three]))
     hand: Hand = [Card(s, rank) for s in suits]
 
@@ -262,7 +274,7 @@ def test_is_prile_when_not_prile(hand: Hand) -> None:
     assert not is_prile(hand)
 
 
-@given(known_prile_hand(), known_not_prile_hand())
+@given(known_prile_hand(), known_not_prile_hand(hand_size=3))
 def test_is_prile_beats_non_prile(prile_hand: Hand, not_prile_hand: Hand) -> None:
     assert hand_value(prile_hand) > hand_value(not_prile_hand)
 
@@ -281,7 +293,7 @@ def test_prile_of_threes_beats_everything(prile_of_threes: Hand, other_hand: Han
     assert hand_value(prile_of_threes) > hand_value(other_hand)
 
 
-@given(known_prile_of_not_threes(), known_not_prile_hand())
+@given(known_prile_of_not_threes(), known_not_prile_hand(hand_size=3))
 def test_prile_of_not_threes_beats_non_prile(
     prile_of_not_threes: Hand, not_prile_hand: Hand
 ) -> None:
@@ -447,7 +459,10 @@ PRILE_OF_THREES_PENALTY: int = 2
 
 
 @given(
-    known_prile_of_threes(), known_not_prile_hand(), known_not_prile_hand(), lives(3, min_lives=1)
+    known_prile_of_threes(),
+    known_not_prile_hand(hand_size=3),
+    known_not_prile_hand(hand_size=3),
+    lives(3, min_lives=1),
 )
 def test_end_round_prile_of_threes_penalty(
     winner_hand: Hand, hand1: Hand, hand2: Hand, lives: list[int]
@@ -475,9 +490,9 @@ PRILE_PENALTY: int = 1
 
 
 @given(
-    known_prile_of_not_threes(),
-    known_not_prile_hand(),
-    known_not_prile_hand(),
+    known_prile_of_not_threes(hand_size=3),
+    known_not_prile_hand(hand_size=3),
+    known_not_prile_hand(hand_size=3),
     lives(3, min_lives=1),
 )
 def test_end_round_prile_of_not_threes_penalty(
@@ -550,3 +565,56 @@ def test_end_round_handles_tie_without_prile() -> None:
     expected_lives[loser] -= 1
 
     assert game.lives == expected_lives
+
+
+@given(hand())
+def test_hand_encoding_roundtrip(hand: Hand) -> None:
+    tensor: torch.Tensor = encode_hand(hand)
+    decoded_hand: Hand = decode_hand(tensor)
+    assert set(hand) == set(decoded_hand)
+
+
+@given(from_type(Card))
+def test_card_encoding_roundtrip(card: Card) -> None:
+    tensor: torch.Tensor = encode_card(card)
+    decoded_card: Card = decode_card(tensor)
+    assert card == decoded_card
+
+
+def _compute_rank_feature(hand: Hand) -> torch.Tensor:
+    rank_feature: torch.Tensor = torch.zeros(13, dtype=torch.float32)
+    for card in hand:
+        rank_feature[card.rank.index] += 1
+    return rank_feature / MAX_HAND_SIZE
+
+
+def _compute_suit_feature(hand: Hand) -> torch.Tensor:
+    suit_feature: torch.Tensor = torch.zeros(4, dtype=torch.float32)
+    for card in hand:
+        suit_feature[card.suit.index] += 1
+    return suit_feature / MAX_HAND_SIZE
+
+
+def _compute_suit_rank_sum_feature(hand: Hand) -> torch.Tensor:
+    suit_rank_sum_feature: torch.Tensor = torch.zeros(4, dtype=torch.float32)
+    for card in hand:
+        suit_rank_sum_feature[card.suit.index] += float(card.score)
+    return suit_rank_sum_feature / MAX_RANK_SUM
+
+
+@given(hand())
+def test_hand_features(hand: Hand) -> None:
+    rank_matrix, suit_matrix, suit_rank_sum_matrix = feature_matrices()
+    hand_tensor: torch.Tensor = encode_hand(hand, dtype=torch.float32)
+
+    rank_features: torch.Tensor = hand_tensor @ rank_matrix
+    expected_rank_features: torch.Tensor = _compute_rank_feature(hand)
+    torch.testing.assert_close(rank_features, expected_rank_features)
+
+    suit_features: torch.Tensor = hand_tensor @ suit_matrix
+    expected_suit_features: torch.Tensor = _compute_suit_feature(hand)
+    torch.testing.assert_close(suit_features, expected_suit_features)
+
+    suit_rank_sum_features: torch.Tensor = hand_tensor @ suit_rank_sum_matrix
+    expected_suit_rank_sum_features: torch.Tensor = _compute_suit_rank_sum_feature(hand)
+    torch.testing.assert_close(suit_rank_sum_features, expected_suit_rank_sum_features)

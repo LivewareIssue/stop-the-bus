@@ -3,6 +3,10 @@ from stop_the_bus.Card import Card, Rank, Suit
 type Hand = list[Card]
 
 
+MAX_HAND_SIZE: int = 4
+MIN_HAND_SIZE: int = 3
+
+
 def empty_hand() -> Hand:
     return []
 

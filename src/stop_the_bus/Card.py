@@ -14,6 +14,36 @@ class Suit(Enum):
     def __repr__(self) -> str:
         return self.__str__()
 
+    @property
+    def index(self) -> int:
+        match self:
+            case Suit.Spades:
+                return 0
+            case Suit.Diamonds:
+                return 1
+            case Suit.Clubs:
+                return 2
+            case Suit.Hearts:
+                return 3
+
+    @staticmethod
+    def from_index(index: int) -> "Suit":
+        match index:
+            case 0:
+                return Suit.Spades
+            case 1:
+                return Suit.Diamonds
+            case 2:
+                return Suit.Clubs
+            case 3:
+                return Suit.Hearts
+            case _:
+                raise ValueError(f"Invalid suit index: {index}")
+
+    @staticmethod
+    def size() -> int:
+        return len(Suit.__members__)
+
 
 class Rank(Enum):
     Ace = 1
@@ -58,6 +88,18 @@ class Rank(Enum):
             case _:
                 return int(self.value)
 
+    @property
+    def index(self) -> int:
+        return self.value - 1
+
+    @staticmethod
+    def from_index(index: int) -> "Rank":
+        return Rank(index + 1)
+
+    @staticmethod
+    def size() -> int:
+        return len(Rank.__members__)
+
 
 @dataclass(frozen=True, slots=True)
 class Card:
@@ -73,3 +115,17 @@ class Card:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    @property
+    def index(self) -> int:
+        return self.suit.index * Rank.size() + self.rank.index
+
+    @staticmethod
+    def from_index(index: int) -> "Card":
+        rank_index: int = index % Rank.size()
+        suit_index: int = index // Rank.size()
+
+        rank: Rank = Rank.from_index(rank_index)
+        suit: Suit = Suit.from_index(suit_index)
+
+        return Card(suit, rank)

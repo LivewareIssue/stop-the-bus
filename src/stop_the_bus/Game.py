@@ -8,9 +8,23 @@ from dataclasses import dataclass
 
 from stop_the_bus.Card import Card, Rank
 from stop_the_bus.Deck import Deck, deal, empty_deck, shuffled_deck
-from stop_the_bus.Hand import Hand, empty_hand, flush_value, hand_value, is_flush, is_prile
+from stop_the_bus.Hand import (
+    MIN_HAND_SIZE,
+    Hand,
+    empty_hand,
+    flush_value,
+    hand_value,
+    is_flush,
+    is_prile,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
+
+
+STOP_THE_BUS_HAND_VALUE_THRESHOLD: int = 21
+DEFAULT_INITIAL_LIVES: int = 5
+PRILE_OF_THREES_PENALTY: int = 2
+OTHER_PRILE_PENALTY: int = 1
 
 
 class Game:
@@ -20,7 +34,7 @@ class Game:
         "dealer",
     )
 
-    def __init__(self, player_count: int, lives: int = 5) -> None:
+    def __init__(self, player_count: int, lives: int = DEFAULT_INITIAL_LIVES) -> None:
         self.player_count: int = player_count
         self.lives: list[int] = [lives] * player_count
         self.dealer: int = 0
@@ -74,7 +88,7 @@ class Round:
         self.certain_holds: list[Hand] = [empty_hand() for _ in players]
         self.turns_remaining: int | None = None
 
-        for _ in range(3):
+        for _ in range(MIN_HAND_SIZE):
             for hand in self.hands:
                 deal(self.deck, hand)
 
@@ -146,7 +160,8 @@ class Round:
     def can_stop_the_bus(self) -> bool:
         hand: Hand = self.current_hand
         return not self.bus_is_stopped and (
-            (is_flush(hand) and flush_value(hand) >= 21) or is_prile(hand)
+            (is_flush(hand) and flush_value(hand) >= STOP_THE_BUS_HAND_VALUE_THRESHOLD)
+            or is_prile(hand)
         )
 
     def advance_turn(self) -> None:
@@ -195,7 +210,7 @@ class Round:
             self.game.lives[self.players[i]] -= 1
 
     def prile_penalty(self, winner_index: int, rank: Rank) -> None:
-        penalty: int = 2 if rank == Rank.Three else 1
+        penalty: int = PRILE_OF_THREES_PENALTY if rank == Rank.Three else OTHER_PRILE_PENALTY
         for i, player in enumerate(self.players):
             if i != winner_index:
                 self.game.lives[player] -= penalty
@@ -256,3 +271,13 @@ class View:
             for i, hand in enumerate(self.round.certain_holds)
             if i != self.player_index and hand
         }
+
+    @property
+    def bus_is_stopped(self) -> bool:
+        """Whether the bus has been stopped."""
+        return self.round.bus_is_stopped
+
+    @property
+    def can_stop_the_bus(self) -> bool:
+        """Whether the viewer can stop the bus."""
+        return self.round.can_stop_the_bus() if self.is_viewer_turn else False

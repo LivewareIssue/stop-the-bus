@@ -9,6 +9,9 @@ from stop_the_bus.Hand import Hand
 type Deck = deque[Card]
 
 
+DECK_SIZE: int = Rank.size() * Suit.size()
+
+
 def empty_deck() -> Deck:
     return deque()
 
