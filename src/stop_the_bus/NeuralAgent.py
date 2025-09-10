@@ -45,6 +45,7 @@ class NeuralAgent:
 
     def _act(self, logits: torch.Tensor, mask: torch.Tensor | None) -> int:
         x: torch.Tensor = logits.squeeze(0)
+
         if mask is not None:
             x = x.masked_fill(~mask.to(self.device), float("-inf"))
 
@@ -57,6 +58,7 @@ class NeuralAgent:
         temperature: float = max(self.temperature, 1e-6)
         p: torch.Tensor = torch.softmax(x / temperature, dim=-1)
         if torch.isnan(p).any() or torch.isinf(p).any() or p.sum() <= 0.0:
+            log.warning(f"Invalid probabilities: {p}")
             return self._act_random(x, mask)
 
         return int(torch.multinomial(p, num_samples=1).item())
@@ -83,11 +85,6 @@ class NeuralAgent:
 
     def stop_the_bus(self, view: View) -> bool:
         logits: torch.Tensor = self._forward(view, Phase.STOP)
-        action: int = self._act(logits, None)
-
-        log.debug(f"Player {view.player}'s hand: {view.hand}")
-        log.debug(
-            f"Player {view.player} {'can' if view.can_stop_the_bus else 'cannot'} stop the bus"
-        )
-
-        return action == 0
+        mask: torch.Tensor = torch.tensor([view.can_stop_the_bus, True], device=logits.device)
+        action: int = self._act(logits, mask=mask)
+        return action == 0 and view.round.stop_the_bus()

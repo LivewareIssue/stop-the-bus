@@ -17,7 +17,7 @@ def main() -> None:
         NeuralAgent(ViewModule(device=device), greedy=False, temperature=0.5),
         NeuralAgent(ViewModule(device=device), greedy=False, temperature=0.5),
     ]
-    driver: Driver = Driver(agents)
+    driver: Driver = Driver(agents, max_turn_count=100)
     driver.drive()
 
 

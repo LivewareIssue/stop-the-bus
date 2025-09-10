@@ -153,9 +153,10 @@ class Round:
         log.info(f"Player {self.current_player} drew {card} from the discard pile")
         return card
 
-    def stop_the_bus(self) -> None:
+    def stop_the_bus(self) -> bool:
         self.turns_remaining = self.player_count
         log.info(f"Player {self.current_player} stopped the bus")
+        return True
 
     def can_stop_the_bus(self) -> bool:
         hand: Hand = self.current_hand
