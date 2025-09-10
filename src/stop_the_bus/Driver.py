@@ -40,8 +40,8 @@ class Driver:
 
     def drive(self) -> int:
         while self.game.live_player_count > 1:
-            log.info("Starting new round")
-            log.info(f"Dealer is player {self.game.dealer}")
+            log.debug("Starting new round")
+            log.debug(f"Dealer is player {self.game.dealer}")
             round: Round = self.game.start_round()
 
             self._broadcast(round, lambda observer, agent_id, actor_id: observer.on_round_start())
@@ -55,7 +55,7 @@ class Driver:
             round.end_round()
             self.game.rotate_dealer()
         [winner] = self.game.live_players
-        log.info(f"Player {winner} wins the game!")
+        log.debug(f"Player {winner} wins the game!")
         return winner
 
     def _drive_discard(self, round: Round, view: View, agent: Agent) -> None:

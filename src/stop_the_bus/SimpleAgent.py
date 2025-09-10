@@ -54,7 +54,7 @@ class SimpleAgent:
     def stop_the_bus(self, view: View) -> bool:
         round: Round = view.round
         hand: Hand = view.hand
-        if round.can_stop_the_bus() and (is_prile(hand) or flush_value(hand) >= 27):
+        if round.can_stop_the_bus() and (is_prile(hand) or flush_value(hand) >= 23):
             round.stop_the_bus()
             return True
         return False

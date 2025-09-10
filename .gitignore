@@ -16,3 +16,5 @@ logs/
 
 # Hypothesis constants
 .hypothesis/
+
+model.pt

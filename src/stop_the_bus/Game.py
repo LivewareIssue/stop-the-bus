@@ -56,10 +56,10 @@ class Game:
         self.dealer = next(self.live_players)
 
     def start_round(self) -> Round:
-        log.info(f"Dealing to players: {list(self.live_players)}")
+        log.debug(f"Dealing to players: {list(self.live_players)}")
         for i in range(self.player_count):
             if self.lives[i] > 0:
-                log.info(
+                log.debug(
                     f"Player {i} has {self.lives[i]} "
                     f"{'life' if self.lives[i] == 1 else 'lives'} remaining"
                 )
@@ -126,7 +126,7 @@ class Round:
         self.discard_pile.append(card)
         if card in self.certain_holds[self.current_index]:
             self.certain_holds[self.current_index].remove(card)
-        log.info(f"Player {self.current_player} discarded {card}")
+        log.debug(f"Player {self.current_player} discarded {card}")
         return card
 
     def draw_from_deck(self) -> Card:
@@ -135,7 +135,7 @@ class Round:
             self.reshuffle(self.deck, self.discard_pile)
 
         card: Card = deal(self.deck, self.current_hand)
-        log.info(f"Player {self.current_player} drew {card} from the deck")
+        log.debug(f"Player {self.current_player} drew {card} from the deck")
         return card
 
     def reshuffle(self, deck: Deck, discard_pile: Deck) -> None:
@@ -150,12 +150,12 @@ class Round:
         card: Card = self.discard_pile.pop()
         self.current_hand.append(card)
         self.certain_holds[self.current_index].append(card)
-        log.info(f"Player {self.current_player} drew {card} from the discard pile")
+        log.debug(f"Player {self.current_player} drew {card} from the discard pile")
         return card
 
     def stop_the_bus(self) -> bool:
         self.turns_remaining = self.player_count
-        log.info(f"Player {self.current_player} stopped the bus")
+        log.debug(f"Player {self.current_player} stopped the bus")
         return True
 
     def can_stop_the_bus(self) -> bool:
@@ -172,7 +172,7 @@ class Round:
 
     def end_round(self) -> None:
         for i, hand in enumerate(self.hands):
-            log.info(f"Player {self.players[i]}'s hand: {hand}")
+            log.debug(f"Player {self.players[i]}'s hand: {hand}")
 
         players_to_scores: dict[int, int] = {
             player_index: hand_value(hand) for player_index, hand in enumerate(self.hands)
@@ -188,14 +188,16 @@ class Round:
 
         if len(winning_player_indices) == 1:
             [winning_player_index] = scores_to_player_indices[high_score]
-            log.info(f"Player {self.players[winning_player_index]} wins the round!")
+            log.debug(f"Player {self.players[winning_player_index]} wins the round!")
             winning_hand: Hand = self.hands[winning_player_index]
             if is_prile(winning_hand):
                 [rank] = {card.rank for card in winning_hand}
                 self.prile_penalty(winning_player_index, rank)
                 return
         else:
-            log.info(f"Players {[self.players[i] for i in winning_player_indices]} tie for the win")
+            log.debug(
+                f"Players {[self.players[i] for i in winning_player_indices]} tie for the win"
+            )
 
         low_score: int = min(scores_to_player_indices.keys())
         loser_indices: list[int] = scores_to_player_indices[low_score]
@@ -203,9 +205,9 @@ class Round:
 
     def standard_penalty(self, loser_indices: list[int]) -> None:
         if len(loser_indices) > 1:
-            log.info(f"Players {[self.players[i] for i in loser_indices]} lose a life")
+            log.debug(f"Players {[self.players[i] for i in loser_indices]} lose a life")
         else:
-            log.info(f"Player {self.players[loser_indices[0]]} loses a life")
+            log.debug(f"Player {self.players[loser_indices[0]]} loses a life")
 
         for i in loser_indices:
             self.game.lives[self.players[i]] -= 1
@@ -218,9 +220,9 @@ class Round:
 
         losers: list[int] = [self.players[i] for i in range(self.player_count) if i != winner_index]
         if len(losers) > 1:
-            log.info(f"Players {losers} lose {penalty} {'lives' if penalty > 1 else 'life'}")
+            log.debug(f"Players {losers} lose {penalty} {'lives' if penalty > 1 else 'life'}")
         else:
-            log.info(f"Player {losers[0]} loses {penalty} {'lives' if penalty > 1 else 'life'}")
+            log.debug(f"Player {losers[0]} loses {penalty} {'lives' if penalty > 1 else 'life'}")
 
 
 @dataclass(frozen=True, slots=True)

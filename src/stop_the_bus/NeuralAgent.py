@@ -2,10 +2,10 @@ import logging
 
 import torch
 
+from stop_the_bus.Agent import Agent
 from stop_the_bus.Card import Card
 from stop_the_bus.Encoding import Phase, ViewModule
-from stop_the_bus.Game import Game, Round, View
-from stop_the_bus.SimpleAgent import SimpleAgent
+from stop_the_bus.Game import View
 
 DEFAULT_GREEDY: bool = True
 DEFAULT_TEMPERATURE: float = 1.0
@@ -91,27 +91,30 @@ class NeuralAgent:
         return action == 0 and view.round.stop_the_bus()
 
 
-class _ImitationAgent(SimpleAgent):
+class SupervisedNeuralAgent:
     def __init__(
         self,
         net: ViewModule,
+        expert: Agent,
         optim: torch.optim.Optimizer,
         loss_fn: torch.nn.CrossEntropyLoss,
     ) -> None:
-        super().__init__()
         self.net: ViewModule = net
+        self.expert: Agent = expert
         self.optim: torch.optim.Optimizer = optim
         self.loss_fn: torch.nn.CrossEntropyLoss = loss_fn
+        self.last_loss: float = 0.0
 
     def _update(self, logits: torch.Tensor, target: torch.Tensor) -> None:
         self.optim.zero_grad()
         loss: torch.Tensor = self.loss_fn(logits, target)
         loss.backward()  # type: ignore[arg-type]
         self.optim.step()
+        self.last_loss = loss.item()
 
     def draw(self, view: View) -> tuple[Card, bool]:
         logits: torch.Tensor = self.net(view, Phase.DRAW)
-        card, from_deck = super().draw(view)
+        card, from_deck = self.expert.draw(view)
         target: torch.Tensor = torch.tensor(
             [0 if from_deck else 1], device=logits.device, dtype=torch.long
         )
@@ -121,7 +124,7 @@ class _ImitationAgent(SimpleAgent):
     def discard(self, view: View) -> Card:
         logits: torch.Tensor = self.net(view, Phase.DISCARD)
         hand_before: list[Card] = list(view.hand)
-        card: Card = super().discard(view)
+        card: Card = self.expert.discard(view)
         index: int = hand_before.index(card)
         target: torch.Tensor = torch.tensor([index], device=logits.device, dtype=torch.long)
         self._update(logits, target)
@@ -129,49 +132,9 @@ class _ImitationAgent(SimpleAgent):
 
     def stop_the_bus(self, view: View) -> bool:
         logits: torch.Tensor = self.net(view, Phase.STOP)
-        stop: bool = super().stop_the_bus(view)
+        stop: bool = self.expert.stop_the_bus(view)
         target: torch.Tensor = torch.tensor(
             [0 if stop else 1], device=logits.device, dtype=torch.long
         )
         self._update(logits, target)
         return stop
-
-
-def train_with_simple_agent(
-    net: ViewModule,
-    games: int = 100,
-    max_turns: int = 100,
-    lr: float = 1e-3,
-) -> ViewModule:
-    net.train()
-    optim: torch.optim.Optimizer = torch.optim.Adam(net.parameters(), lr=lr)
-    loss_fn: torch.nn.CrossEntropyLoss = torch.nn.CrossEntropyLoss()
-    agents: list[_ImitationAgent] = [_ImitationAgent(net, optim, loss_fn) for _ in range(4)]
-
-    for i in range(games):
-        print(f"Training game {i + 1}/{games}")
-
-        game = Game(len(agents))
-        round: Round = game.start_round()
-        view: View = round.current_view()
-
-        agent: _ImitationAgent = agents[round.current_index]
-        agent.discard(view)
-        agent.stop_the_bus(view)
-        round.advance_turn()
-
-        turns: int = 1
-        while round.has_turns_remaining and turns < max_turns:
-            view = round.current_view()
-            agent = agents[round.current_index]
-            agent.draw(view)
-            agent.discard(view)
-            agent.stop_the_bus(view)
-            round.advance_turn()
-            turns += 1
-
-    net.eval()
-    return net
-
-
-__all__ = ["NeuralAgent", "train_with_simple_agent"]
