@@ -51,7 +51,6 @@ def setup_logging(
     log_file: Path = get_log_file_path(run_id, log_dir)
 
     root: logging.Logger = logging.getLogger()
-    print(level)
     root.setLevel(level)
     for h in root.handlers[:]:
         root.removeHandler(h)

@@ -113,7 +113,7 @@ class _ImitationAgent(SimpleAgent):
         logits: torch.Tensor = self.net(view, Phase.DRAW)
         card, from_deck = super().draw(view)
         target: torch.Tensor = torch.tensor(
-            [float(from_deck), float(not from_deck)], device=logits.device
+            [0 if from_deck else 1], device=logits.device, dtype=torch.long
         )
         self._update(logits, target)
         return card, from_deck
@@ -123,15 +123,16 @@ class _ImitationAgent(SimpleAgent):
         hand_before: list[Card] = list(view.hand)
         card: Card = super().discard(view)
         index: int = hand_before.index(card)
-        target: torch.Tensor = torch.zeros(logits.shape[-1], device=logits.device)
-        target[index] = 1.0
+        target: torch.Tensor = torch.tensor([index], device=logits.device, dtype=torch.long)
         self._update(logits, target)
         return card
 
     def stop_the_bus(self, view: View) -> bool:
         logits: torch.Tensor = self.net(view, Phase.STOP)
         stop: bool = super().stop_the_bus(view)
-        target: torch.Tensor = torch.tensor([float(stop), float(not stop)], device=logits.device)
+        target: torch.Tensor = torch.tensor(
+            [0 if stop else 1], device=logits.device, dtype=torch.long
+        )
         self._update(logits, target)
         return stop
 
@@ -147,7 +148,9 @@ def train_with_simple_agent(
     loss_fn: torch.nn.CrossEntropyLoss = torch.nn.CrossEntropyLoss()
     agents: list[_ImitationAgent] = [_ImitationAgent(net, optim, loss_fn) for _ in range(4)]
 
-    for _ in range(games):
+    for i in range(games):
+        print(f"Training game {i + 1}/{games}")
+
         game = Game(len(agents))
         round: Round = game.start_round()
         view: View = round.current_view()

@@ -17,8 +17,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def main() -> None:
-    console_game()
-    # training_run()
+    # console_game()
+    training_run()
+    # eval_run()
 
 
 def console_game() -> None:
@@ -32,16 +33,39 @@ def training_run(device: torch.device = DEVICE) -> None:
     trained_net: ViewModule = train_with_simple_agent(net, games=1000, max_turns=300)
     torch.save(trained_net.state_dict(), "trained_model.pth")
 
-    trained_net.eval()
+
+def eval_run(device: torch.device = DEVICE) -> None:
+    net = ViewModule(device=device)
+    net.load_state_dict(torch.load("trained_model.pth", map_location=device))
+    net.eval()
+
     agents: list[Agent] = [
-        ConsoleAgent(),
-        NeuralAgent(trained_net, greedy=True),
         SimpleAgent(),
-        NeuralAgent(trained_net, greedy=False, temperature=0.3),
+        NeuralAgent(net, greedy=True),
+        SimpleAgent(),
+        NeuralAgent(net, greedy=False, temperature=0.3),
     ]
 
-    driver: Driver = Driver(agents, max_turn_count=100)
-    driver.drive()
+    wins: dict[int, int] = dict.fromkeys(range(len(agents)), 0)
+    for _ in range(100):
+        driver: Driver = Driver(agents, max_turn_count=100)
+        winner: int = driver.drive()
+        match winner:
+            case 0:
+                print("SimpleAgent 0 wins!")
+            case 1:
+                print("Greedy NeuralAgent wins!")
+            case 2:
+                print("SimpleAgent 2 wins!")
+            case 3:
+                print("Exploratory NeuralAgent wins!")
+            case _:
+                print("No winner")
+                continue
+
+        wins[winner] += 1
+
+    print(wins)
 
 
 if __name__ == "__main__":
