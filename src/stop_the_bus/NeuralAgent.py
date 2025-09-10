@@ -4,7 +4,7 @@ import torch
 
 from stop_the_bus.Card import Card
 from stop_the_bus.Encoding import Phase, ViewModule
-from stop_the_bus.Game import Game, View
+from stop_the_bus.Game import Game, Round, View
 from stop_the_bus.SimpleAgent import SimpleAgent
 
 DEFAULT_GREEDY: bool = True
@@ -92,8 +92,6 @@ class NeuralAgent:
 
 
 class _ImitationAgent(SimpleAgent):
-    """A SimpleAgent wrapper that trains a model to imitate its behaviour."""
-
     def __init__(
         self,
         net: ViewModule,
@@ -108,77 +106,52 @@ class _ImitationAgent(SimpleAgent):
     def _update(self, logits: torch.Tensor, target: torch.Tensor) -> None:
         self.optim.zero_grad()
         loss: torch.Tensor = self.loss_fn(logits, target)
-        loss.backward()
+        loss.backward()  # type: ignore[arg-type]
         self.optim.step()
 
-    def draw(self, view: View) -> tuple[Card, bool]:  # type: ignore[override]
+    def draw(self, view: View) -> tuple[Card, bool]:
         logits: torch.Tensor = self.net(view, Phase.DRAW)
         card, from_deck = super().draw(view)
-        target = torch.tensor([0 if from_deck else 1], device=logits.device)
+        target: torch.Tensor = torch.tensor(
+            [float(from_deck), float(not from_deck)], device=logits.device
+        )
         self._update(logits, target)
         return card, from_deck
 
-    def discard(self, view: View) -> Card:  # type: ignore[override]
+    def discard(self, view: View) -> Card:
         logits: torch.Tensor = self.net(view, Phase.DISCARD)
         hand_before: list[Card] = list(view.hand)
         card: Card = super().discard(view)
         index: int = hand_before.index(card)
-        target = torch.tensor([index], device=logits.device)
+        target: torch.Tensor = torch.zeros(logits.shape[-1], device=logits.device)
+        target[index] = 1.0
         self._update(logits, target)
         return card
 
-    def stop_the_bus(self, view: View) -> bool:  # type: ignore[override]
+    def stop_the_bus(self, view: View) -> bool:
         logits: torch.Tensor = self.net(view, Phase.STOP)
         stop: bool = super().stop_the_bus(view)
-        target = torch.tensor([0 if stop else 1], device=logits.device)
+        target: torch.Tensor = torch.tensor([float(stop), float(not stop)], device=logits.device)
         self._update(logits, target)
         return stop
 
 
 def train_with_simple_agent(
     net: ViewModule,
-    rounds: int = 100,
+    games: int = 100,
     max_turns: int = 100,
     lr: float = 1e-3,
 ) -> ViewModule:
-    """Train ``net`` to imitate :class:`SimpleAgent`.
-
-    The network is updated in-place by observing a ``SimpleAgent`` play multiple
-    rounds of the game.  For each decision point the SimpleAgent's action is
-    treated as the correct label for supervised learning.
-
-    Parameters
-    ----------
-    net:
-        The model to train.
-    rounds:
-        Number of rounds to simulate for training.
-    max_turns:
-        Maximum number of turns per round.
-    lr:
-        Learning rate for Adam optimiser.
-
-    Returns
-    -------
-    ViewModule
-        The trained network (the same instance as ``net``).
-    """
-
     net.train()
     optim: torch.optim.Optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     loss_fn: torch.nn.CrossEntropyLoss = torch.nn.CrossEntropyLoss()
+    agents: list[_ImitationAgent] = [_ImitationAgent(net, optim, loss_fn) for _ in range(4)]
 
-    # Use four imitation agents to gather diverse experiences.
-    agents: list[_ImitationAgent] = [
-        _ImitationAgent(net, optim, loss_fn) for _ in range(4)
-    ]
-
-    for _ in range(rounds):
+    for _ in range(games):
         game = Game(len(agents))
-        round = game.start_round()
-
-        # First turn only has discard and stop phases
+        round: Round = game.start_round()
         view: View = round.current_view()
+
         agent: _ImitationAgent = agents[round.current_index]
         agent.discard(view)
         agent.stop_the_bus(view)

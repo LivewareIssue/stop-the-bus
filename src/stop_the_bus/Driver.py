@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import logging
 from logging import Logger
 
@@ -21,15 +22,29 @@ class Driver:
         self.game: Game = Game(len(agents), lives)
         self.max_turn_count: int = max_turn_count
 
+    def _broadcast(
+        self,
+        round: Round,
+        action: Callable[
+            [
+                Observer,
+                int,
+                int,
+            ],
+            None,
+        ],
+    ) -> None:
+        for agent_id, agent in enumerate(self.agents):
+            if isinstance(agent, Observer):
+                action(agent, agent_id, round.current_player)
+
     def drive(self) -> int:
         while self.game.live_player_count > 1:
             log.info("Starting new round")
             log.info(f"Dealer is player {self.game.dealer}")
             round: Round = self.game.start_round()
 
-            for agent in self.agents:
-                if isinstance(agent, Observer):
-                    agent.on_round_start()
+            self._broadcast(round, lambda observer, agent_id, actor_id: observer.on_round_start())
 
             self._drive_first_turn(round)
             while round.has_turns_remaining:
@@ -45,14 +60,21 @@ class Driver:
 
     def _drive_discard(self, round: Round, view: View, agent: Agent) -> None:
         card: Card = agent.discard(view)
-        for i, a in enumerate(self.agents):
-            if isinstance(a, Observer):
-                a.on_discard(agent=i, actor=round.current_player, card=card)
+
+        self._broadcast(
+            round,
+            lambda observer, agent_id, actor_id: observer.on_discard(
+                agent=agent_id, actor=actor_id, card=card
+            ),
+        )
 
         if agent.stop_the_bus(view):
-            for i, a in enumerate(self.agents):
-                if isinstance(a, Observer):
-                    a.on_stop_the_bus(agent=i, actor=round.current_player)
+            self._broadcast(
+                round,
+                lambda observer, agent_id, actor_id: observer.on_stop_the_bus(
+                    agent=agent_id, actor=actor_id
+                ),
+            )
 
         if isinstance(agent, Observer):
             agent.on_turn_end(view)
@@ -76,8 +98,11 @@ class Driver:
             agent.on_turn_start(view)
 
         card, from_deck = agent.draw(view)
-        for i, a in enumerate(self.agents):
-            if isinstance(a, Observer):
-                a.on_draw(agent=i, actor=round.current_player, card=card, from_deck=from_deck)
+        self._broadcast(
+            round,
+            lambda observer, agent_id, actor_id: observer.on_draw(
+                agent=agent_id, actor=actor_id, card=card, from_deck=from_deck
+            ),
+        )
 
         self._drive_discard(round, view, agent)

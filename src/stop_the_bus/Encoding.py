@@ -175,8 +175,6 @@ class ViewModule(nn.Module):
         BUS_STOPPED_DIM,
     ]
 
-    # INPUT_INDICES: list[int] = cumsum
-
     INPUT_DIM: int = sum(INPUT_DIMS)
 
     def __init__(self, hidden_dim: int = 128, device: torch.device = DEFAULT_DEVICE) -> None:
