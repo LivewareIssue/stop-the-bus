@@ -1,4 +1,5 @@
 from collections import deque
+from collections.abc import Sequence
 
 import hypothesis.strategies as st
 import torch
@@ -6,6 +7,7 @@ from hypothesis import given
 from hypothesis.strategies import from_type
 
 from stop_the_bus.Card import Card, Rank, Suit
+from stop_the_bus.Datalog import Database, query
 from stop_the_bus.Deck import Deck, deal, standard_deck
 from stop_the_bus.Encoding import (
     MAX_RANK_SUM,
@@ -19,13 +21,18 @@ from stop_the_bus.Game import Game, Round, View
 from stop_the_bus.Hand import (
     MAX_HAND_SIZE,
     Hand,
+    compute_distinct_suit_count,
+    compute_distinct_suits,
+    database_from_hand,
     flush_value,
     hand_value,
     is_flush,
     is_prile,
     single_high,
-    suit_count,
 )
+from stop_the_bus.SimpleAgent import RULE_3_SUIT_3_RANK_3_PRILE
+
+# from stop_the_bus.SimpleAgent import SimpleAgent
 
 
 @st.composite
@@ -251,7 +258,8 @@ def test_single_high(data: tuple[Hand, Card]) -> None:
 @given(known_suit_count_hand())
 def test_suit_count(data: tuple[Hand, int]) -> None:
     hand, expected_suit_count = data
-    assert suit_count(hand) == expected_suit_count
+    distinct_suits: set[Suit] = compute_distinct_suits(hand)
+    assert compute_distinct_suit_count(distinct_suits) == expected_suit_count
 
 
 @given(known_flush_hand())
@@ -618,3 +626,41 @@ def test_hand_features(hand: Hand) -> None:
     suit_rank_sum_features: torch.Tensor = hand_tensor @ suit_rank_sum_matrix
     expected_suit_rank_sum_features: torch.Tensor = _compute_suit_rank_sum_feature(hand)
     torch.testing.assert_close(suit_rank_sum_features, expected_suit_rank_sum_features)
+
+
+@st.composite
+def distinct_suits(draw: st.DrawFn, count: int) -> list[Suit]:
+    return draw(st.lists(from_type(Suit), min_size=count, max_size=count, unique=True))
+
+
+@st.composite
+def rank_except(draw: st.DrawFn, exclude: Sequence[Rank]) -> Rank:
+    return draw(st.sampled_from([r for r in Rank if r not in exclude]))
+
+
+@st.composite
+def hand_three_suit_3_rank_3_prile(draw: st.DrawFn) -> tuple[Hand, Card, Card]:
+    [suit1, suit2, suit3] = draw(distinct_suits(3))
+
+    rank1: Rank = draw(rank_except([Rank.Three]))
+    rank2: Rank = draw(rank_except([Rank.Three, rank1]))
+
+    card1: Card = Card(suit1, rank1)
+    card2: Card = Card(suit3, rank2)
+
+    cards: list[Card] = [
+        Card(suit1, Rank.Three),
+        Card(suit1, rank1),
+        Card(suit2, Rank.Three),
+        Card(suit3, rank2),
+    ]
+
+    return draw(st.permutations(cards)), card1, card2
+
+
+@given(hand_three_suit_3_rank_3_prile())
+def test_query(data: tuple[Hand, Card, Card]) -> None:
+    hand, _, _ = data
+    database: Database = database_from_hand(hand)
+    results = query(database, RULE_3_SUIT_3_RANK_3_PRILE)
+    assert len(results) == 1
