@@ -1,5 +1,5 @@
-from collections.abc import Callable
 import logging
+from collections.abc import Callable
 from logging import Logger
 
 from stop_the_bus.Agent import Agent, Observer

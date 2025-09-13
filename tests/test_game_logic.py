@@ -1,5 +1,6 @@
 from collections import deque
 from collections.abc import Sequence
+from typing import cast
 
 import hypothesis.strategies as st
 import torch
@@ -30,7 +31,7 @@ from stop_the_bus.Hand import (
     is_prile,
     single_high,
 )
-from stop_the_bus.SimpleAgent import RULE_3_SUIT_3_RANK_3_PRILE
+from stop_the_bus.SimpleAgent import ONE_OF_PAIR_IN_LONG_SUIT, PAIR_IN_SHORT_SUITS, SimpleAgent
 
 # from stop_the_bus.SimpleAgent import SimpleAgent
 
@@ -639,28 +640,242 @@ def rank_except(draw: st.DrawFn, exclude: Sequence[Rank]) -> Rank:
 
 
 @st.composite
-def hand_three_suit_3_rank_3_prile(draw: st.DrawFn) -> tuple[Hand, Card, Card]:
+def hand_3_suits_3_ranks_one_of_pair_in_long_suit(
+    draw: st.DrawFn,
+) -> list[tuple[int, Card]]:
     [suit1, suit2, suit3] = draw(distinct_suits(3))
 
-    rank1: Rank = draw(rank_except([Rank.Three]))
-    rank2: Rank = draw(rank_except([Rank.Three, rank1]))
-
-    card1: Card = Card(suit1, rank1)
-    card2: Card = Card(suit3, rank2)
+    [rank1, rank2, rank3] = draw(st.lists(from_type(Rank), min_size=3, max_size=3, unique=True))
 
     cards: list[Card] = [
-        Card(suit1, Rank.Three),
         Card(suit1, rank1),
-        Card(suit2, Rank.Three),
-        Card(suit3, rank2),
+        Card(suit1, rank2),
+        Card(suit2, rank1),
+        Card(suit3, rank3),
     ]
 
-    return draw(st.permutations(cards)), card1, card2
+    return draw(st.permutations(list(enumerate(cards))))
 
 
-@given(hand_three_suit_3_rank_3_prile())
-def test_query(data: tuple[Hand, Card, Card]) -> None:
-    hand, _, _ = data
-    database: Database = database_from_hand(hand)
-    results = query(database, RULE_3_SUIT_3_RANK_3_PRILE)
+@given(hand_3_suits_3_ranks_one_of_pair_in_long_suit())
+def test_match_3_suits_3_ranks_one_of_pair_in_long_suit(
+    indexed_hand: list[tuple[int, Card]],
+) -> None:
+    shuffled_hand: Hand = [card for _, card in indexed_hand]
+    database: Database = database_from_hand(shuffled_hand)
+    results = query(database, ONE_OF_PAIR_IN_LONG_SUIT)
     assert len(results) == 1
+
+    inverse_permutation: list[int] = [0] * len(indexed_hand)
+    for new_index, (original_index, _) in enumerate(indexed_hand):
+        inverse_permutation[original_index] = new_index
+
+    [result] = results
+
+    a: Rank = cast(Rank, result["rank_a"])
+    b: Rank = cast(Rank, result["rank_b"])
+    c: Rank = cast(Rank, result["rank_c"])
+
+    suit_x: Suit = cast(Suit, result["suit_x"])
+    suit_y: Suit = cast(Suit, result["suit_y"])
+    suit_z: Suit = cast(Suit, result["suit_z"])
+
+    card_0: Card = Card(suit_x, a)
+    card_1: Card = Card(suit_x, b)
+    card_2: Card = Card(suit_y, a)
+    card_3: Card = Card(suit_z, c)
+
+    assert shuffled_hand[inverse_permutation[0]] == card_0
+    assert shuffled_hand[inverse_permutation[1]] == card_1
+    assert shuffled_hand[inverse_permutation[2]] == card_2
+    assert shuffled_hand[inverse_permutation[3]] == card_3
+
+    index_of_a_of_x: int = cast(int, result["index_of_a_of_x"])
+    index_of_b_of_x: int = cast(int, result["index_of_b_of_x"])
+    index_of_a_of_y: int = cast(int, result["index_of_a_of_y"])
+    index_of_c_of_z: int = cast(int, result["index_of_c_of_z"])
+
+    assert index_of_a_of_x == inverse_permutation[0]
+    assert index_of_b_of_x == inverse_permutation[1]
+    assert index_of_a_of_y == inverse_permutation[2]
+    assert index_of_c_of_z == inverse_permutation[3]
+
+
+@st.composite
+def hand_3_suits_3_ranks_pair_in_short_suits(
+    draw: st.DrawFn,
+) -> list[tuple[int, Card]]:
+    [suit1, suit2, suit3] = draw(distinct_suits(3))
+
+    [rank1, rank2, rank3] = draw(st.lists(from_type(Rank), min_size=3, max_size=3, unique=True))
+
+    cards: list[Card] = [
+        Card(suit1, rank1),
+        Card(suit1, rank2),
+        Card(suit2, rank3),
+        Card(suit3, rank3),
+    ]
+
+    return draw(st.permutations(list(enumerate(cards))))
+
+
+@given(hand_3_suits_3_ranks_pair_in_short_suits())
+def test_match_3_suits_3_ranks_pair_in_short_suits(
+    indexed_hand: list[tuple[int, Card]],
+) -> None:
+    shuffled_hand: Hand = [card for _, card in indexed_hand]
+    database: Database = database_from_hand(shuffled_hand)
+    results = query(database, PAIR_IN_SHORT_SUITS)
+    assert len(results) == 4
+
+    inverse_permutation: list[int] = [0] * len(indexed_hand)
+    for new_index, (original_index, _) in enumerate(indexed_hand):
+        inverse_permutation[original_index] = new_index
+
+    for result in results:
+        a: Rank = cast(Rank, result["rank_a"])
+        b: Rank = cast(Rank, result["rank_b"])
+        c: Rank = cast(Rank, result["rank_c"])
+
+        suit_x: Suit = cast(Suit, result["suit_x"])
+        suit_y: Suit = cast(Suit, result["suit_y"])
+        suit_z: Suit = cast(Suit, result["suit_z"])
+
+        card_0: Card = Card(suit_x, a)
+        card_1: Card = Card(suit_x, b)
+        card_2: Card = Card(suit_y, c)
+        card_3: Card = Card(suit_z, c)
+
+        assert (
+            shuffled_hand[inverse_permutation[0]] == card_0
+            and shuffled_hand[inverse_permutation[1]] == card_1
+        ) or (
+            shuffled_hand[inverse_permutation[0]] == card_1
+            and shuffled_hand[inverse_permutation[1]] == card_0
+        )
+
+        assert (
+            shuffled_hand[inverse_permutation[2]] == card_2
+            and shuffled_hand[inverse_permutation[3]] == card_3
+        ) or (
+            shuffled_hand[inverse_permutation[2]] == card_3
+            and shuffled_hand[inverse_permutation[3]] == card_2
+        )
+
+        index_of_a_of_x: int = cast(int, result["index_of_a_of_x"])
+        index_of_b_of_x: int = cast(int, result["index_of_b_of_x"])
+        index_of_c_of_y: int = cast(int, result["index_of_c_of_y"])
+        index_of_c_of_z: int = cast(int, result["index_of_c_of_z"])
+
+        assert (
+            index_of_a_of_x == inverse_permutation[0] and index_of_b_of_x == inverse_permutation[1]
+        ) or (
+            index_of_a_of_x == inverse_permutation[1] and index_of_b_of_x == inverse_permutation[0]
+        )
+
+        assert (
+            index_of_c_of_y == inverse_permutation[2] and index_of_c_of_z == inverse_permutation[3]
+        ) or (
+            index_of_c_of_y == inverse_permutation[3] and index_of_c_of_z == inverse_permutation[2]
+        )
+
+
+@given(distinct_suits(3))
+def test_simple_agent_3_suits_3_ranks_one_of_pair_in_long_suit(suits: list[Suit]) -> None:
+    [suit1, suit2, suit3] = suits
+
+    test_cases: list[tuple[Rank, Rank, Rank, Rank, int]] = [
+        (Rank.Three, Rank.Two, Rank.Three, Rank.Four, 3),
+        (Rank.Three, Rank.Two, Rank.Three, Rank.Six, 3),
+        (Rank.Three, Rank.Two, Rank.Three, Rank.Seven, 1),
+        (Rank.Three, Rank.Two, Rank.Three, Rank.Ace, 1),
+        (Rank.Three, Rank.Six, Rank.Three, Rank.Two, 3),
+        (Rank.Three, Rank.Six, Rank.Three, Rank.Five, 3),
+        (Rank.Three, Rank.Six, Rank.Three, Rank.Seven, 1),
+        (Rank.Three, Rank.Six, Rank.Three, Rank.Ace, 1),
+        (Rank.Three, Rank.Seven, Rank.Three, Rank.Two, 3),
+        (Rank.Three, Rank.Seven, Rank.Three, Rank.Six, 3),
+        (Rank.Three, Rank.Seven, Rank.Three, Rank.Eight, 3),
+        (Rank.Three, Rank.Seven, Rank.Three, Rank.Ace, 3),
+        (Rank.Three, Rank.Ace, Rank.Three, Rank.Two, 3),
+        (Rank.Three, Rank.Ace, Rank.Three, Rank.Six, 3),
+        (Rank.Three, Rank.Ace, Rank.Three, Rank.Seven, 3),
+        (Rank.Three, Rank.Ace, Rank.Three, Rank.King, 3),
+        (Rank.Six, Rank.Two, Rank.Six, Rank.Three, 3),
+        (Rank.Six, Rank.Two, Rank.Six, Rank.Five, 3),
+        (Rank.Six, Rank.Two, Rank.Six, Rank.Seven, 1),
+        (Rank.Six, Rank.Two, Rank.Six, Rank.Ace, 1),
+        (Rank.Six, Rank.Five, Rank.Six, Rank.Two, 3),
+        (Rank.Six, Rank.Five, Rank.Six, Rank.Four, 3),
+        (Rank.Six, Rank.Five, Rank.Six, Rank.Seven, 3),
+        (Rank.Six, Rank.Five, Rank.Six, Rank.Ace, 3),
+        (Rank.Six, Rank.Seven, Rank.Six, Rank.Two, 3),
+        (Rank.Six, Rank.Seven, Rank.Six, Rank.Five, 3),
+        (Rank.Six, Rank.Seven, Rank.Six, Rank.Eight, 3),
+        (Rank.Six, Rank.Seven, Rank.Six, Rank.Ace, 3),
+        (Rank.Six, Rank.Ace, Rank.Six, Rank.Two, 3),
+        (Rank.Six, Rank.Ace, Rank.Six, Rank.Five, 3),
+        (Rank.Six, Rank.Ace, Rank.Six, Rank.Seven, 3),
+        (Rank.Six, Rank.Ace, Rank.Six, Rank.King, 3),
+    ]
+
+    for rank_a, rank_b, rank_c, rank_d, expected_discard_index in test_cases:
+        hand: Hand = [
+            Card(suit1, rank_a),
+            Card(suit1, rank_b),
+            Card(suit2, rank_c),
+            Card(suit3, rank_d),
+        ]
+        assert SimpleAgent.compute_discard_index(hand) == expected_discard_index
+
+
+@given(distinct_suits(3))
+def test_simple_agent_3_suits_3_ranks_pair_in_short_suits(suits: list[Suit]) -> None:
+    [suit1, suit2, suit3] = suits
+
+    test_cases: list[tuple[Rank, Rank, Rank, Rank, int | list[int]]] = [
+        (Rank.Two, Rank.Four, Rank.Three, Rank.Three, 0),
+        (Rank.Two, Rank.Six, Rank.Three, Rank.Three, 0),
+        (Rank.Two, Rank.Seven, Rank.Three, Rank.Three, 0),
+        (Rank.Two, Rank.Ace, Rank.Three, Rank.Three, 0),
+        (Rank.Six, Rank.Two, Rank.Three, Rank.Three, 1),
+        (Rank.Six, Rank.Five, Rank.Three, Rank.Three, 1),
+        (Rank.Six, Rank.Seven, Rank.Three, Rank.Three, 0),
+        (Rank.Six, Rank.Ace, Rank.Three, Rank.Three, 0),
+        (Rank.Seven, Rank.Two, Rank.Three, Rank.Three, 1),
+        (Rank.Seven, Rank.Six, Rank.Three, Rank.Three, 1),
+        (Rank.Seven, Rank.Eight, Rank.Three, Rank.Three, 0),
+        (Rank.Seven, Rank.Ace, Rank.Three, Rank.Three, 0),
+        (Rank.Ace, Rank.Two, Rank.Three, Rank.Three, 1),
+        (Rank.Ace, Rank.Six, Rank.Three, Rank.Three, 1),
+        (Rank.Ace, Rank.Seven, Rank.Three, Rank.Three, 1),
+        (Rank.Ace, Rank.King, Rank.Three, Rank.Three, 1),
+        (Rank.Two, Rank.Three, Rank.Six, Rank.Six, 0),
+        (Rank.Two, Rank.Five, Rank.Six, Rank.Six, 0),
+        (Rank.Two, Rank.Seven, Rank.Six, Rank.Six, 0),
+        (Rank.Two, Rank.Ace, Rank.Six, Rank.Six, 0),
+        (Rank.Five, Rank.Two, Rank.Six, Rank.Six, 1),
+        (Rank.Five, Rank.Four, Rank.Six, Rank.Six, 1),
+        (Rank.Five, Rank.Seven, Rank.Six, Rank.Six, 0),
+        (Rank.Five, Rank.Ace, Rank.Six, Rank.Six, 0),
+        (Rank.Seven, Rank.Two, Rank.Six, Rank.Six, 1),
+        (Rank.Seven, Rank.Five, Rank.Six, Rank.Six, 1),
+        (Rank.Seven, Rank.Eight, Rank.Six, Rank.Six, 0),
+        (Rank.Seven, Rank.Ace, Rank.Six, Rank.Six, [2, 3]),
+        (Rank.Ace, Rank.Two, Rank.Six, Rank.Six, 1),
+        (Rank.Ace, Rank.Five, Rank.Six, Rank.Six, 1),
+        (Rank.Ace, Rank.Seven, Rank.Six, Rank.Six, [2, 3]),
+        (Rank.Ace, Rank.King, Rank.Six, Rank.Six, [2, 3]),
+    ]
+
+    for rank_a, rank_b, rank_c, rank_d, expected_discard_index in test_cases:
+        hand: Hand = [
+            Card(suit1, rank_a),
+            Card(suit1, rank_b),
+            Card(suit2, rank_c),
+            Card(suit3, rank_d),
+        ]
+        if isinstance(expected_discard_index, int):
+            assert SimpleAgent.compute_discard_index(hand) == expected_discard_index
+        else:
+            assert SimpleAgent.compute_discard_index(hand) in expected_discard_index
