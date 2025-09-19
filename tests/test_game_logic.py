@@ -826,7 +826,8 @@ def test_simple_agent_3_suits_3_ranks_one_of_pair_in_long_suit(suits: list[Suit]
             Card(suit2, rank_c),
             Card(suit3, rank_d),
         ]
-        assert SimpleAgent.compute_discard_index(hand) == expected_discard_index
+        discard_index, _ = SimpleAgent.compute_discard_index(hand)
+        assert discard_index == expected_discard_index
 
 
 @given(distinct_suits(3))
@@ -875,7 +876,8 @@ def test_simple_agent_3_suits_3_ranks_pair_in_short_suits(suits: list[Suit]) -> 
             Card(suit2, rank_c),
             Card(suit3, rank_d),
         ]
+        discard_index, _ = SimpleAgent.compute_discard_index(hand)
         if isinstance(expected_discard_index, int):
-            assert SimpleAgent.compute_discard_index(hand) == expected_discard_index
+            assert discard_index == expected_discard_index
         else:
-            assert SimpleAgent.compute_discard_index(hand) in expected_discard_index
+            assert discard_index in expected_discard_index

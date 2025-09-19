@@ -1,3 +1,5 @@
+import logging
+from collections.abc import Callable
 from typing import cast
 
 from stop_the_bus.Card import Card, Rank, Suit
@@ -16,6 +18,8 @@ from stop_the_bus.Hand import (
     database_from_hand,
     is_prile,
 )
+
+log: logging.Logger = logging.getLogger(__name__)
 
 PAIR_IN_SHORT_SUITS: Rule = Rule(
     head=Atom(
@@ -83,13 +87,28 @@ ONE_OF_PAIR_IN_LONG_SUIT: Rule = Rule(
     ),
 )
 
+DrawFunction = Callable[[View], bool]
+
 
 class SimpleAgent:
+    next_draw_function: DrawFunction | None = None
+
     def draw(self, view: View) -> tuple[Card, bool]:
+        if self.next_draw_function is not None:
+            if self.next_draw_function(view):
+                return (view.round.draw_from_deck(), True)
+            else:
+                return (view.round.draw_from_discard(), False)
+
+        log.warning("No next_draw_function set, defaulting to drawing from deck")
+        return (view.round.draw_from_deck(), True)
+
+    @staticmethod
+    def draw_flush(view: View) -> bool:
         raise NotImplementedError()
 
     @staticmethod
-    def compute_discard_index(hand: Hand) -> int:
+    def compute_discard_index(hand: Hand) -> tuple[int, DrawFunction | None]:
         ARBITRARY: int = 0
 
         rank_to_card_indices: dict[Rank, list[int]] = compute_rank_to_card_indices(hand)
@@ -114,7 +133,7 @@ class SimpleAgent:
             # If all cards are the same rank, discard an arbitrary card
             # e.g. [4D, 4H, 4S, 4C]
             if distinct_rank_count == 1:
-                return ARBITRARY
+                return (ARBITRARY, None)
 
             if distinct_rank_count == 2:
                 # If we have a prile, discard the (guaranteed single) card from the least common
@@ -123,13 +142,13 @@ class SimpleAgent:
                 if is_prile(hand):
                     [least_common_rank] = compute_least_common_ranks(rank_to_counts)
                     [card_index] = rank_to_card_indices[least_common_rank]
-                    return card_index
+                    return (card_index, None)
 
                 # Otherwise, we have to pairs, so arbitrarily discard one of the
                 # cards from the pair with the lowest rank
                 # e.g. [4D, 4H, 7S, 7C] -> discard 4D or 4H
                 lowest_rank_card_indices: list[int] = rank_to_card_indices[lowest_card.rank]
-                return lowest_rank_card_indices[ARBITRARY]
+                return (lowest_rank_card_indices[ARBITRARY], None)
 
             # If we have 3 different ranks, we must have a pair and two singletons,
             # keep the pair and discard the lowest rank card from either singleton suits
@@ -137,12 +156,12 @@ class SimpleAgent:
             if distinct_rank_count == 3:
                 lowest_rank_singleton: Rank = min(single_card_ranks, key=lambda rank: rank.value)
                 [card_index] = rank_to_card_indices[lowest_rank_singleton]
-                return card_index
+                return (card_index, None)
 
             # Otherwise, we have 4 ranks across 4 suits, so discard the lowest scoring card
             # regardless of suit
             # e.g. [2D, 4H, 3S, 5C] -> discard 2D
-            return lowest_card_index
+            return (lowest_card_index, None)
 
         if distinct_suit_count == 3:
             if distinct_rank_count == 4:
@@ -165,17 +184,17 @@ class SimpleAgent:
 
                         if a == Rank.Three:
                             if b.score >= Rank.Seven.score:
-                                return index_of_c_of_z
+                                return (index_of_c_of_z, None)
 
                             if c.score >= Rank.Seven.score:
-                                return index_of_b_of_x
+                                return (index_of_b_of_x, None)
 
-                            return index_of_c_of_z
+                            return (index_of_c_of_z, None)
 
                         if (a.score + b.score) < 11 and c.score > 6:
-                            return index_of_b_of_x
+                            return (index_of_b_of_x, None)
 
-                        return index_of_c_of_z
+                        return (index_of_c_of_z, None)
 
                     case _:
                         pass
@@ -193,23 +212,14 @@ class SimpleAgent:
                         index_of_b_of_x: int = cast(int, result["index_of_b_of_x"])
                         index_of_c_of_z: int = cast(int, result["index_of_c_of_z"])
 
-                        print(hand)
-                        print(f"a: {a}, b: {b}, c: {c}")
-                        print(f"index_of_a_of_x: {index_of_a_of_x}")
-                        print(f"index_of_b_of_x: {index_of_b_of_x}")
-                        print(f"index_of_c_of_z: {index_of_c_of_z}")
-
                         if c == Rank.Three:
                             # Discard the lowest value card in the long suit (X)
-                            return index_of_a_of_x if a.score < b.score else index_of_b_of_x
+                            return (index_of_a_of_x if a.score < b.score else index_of_b_of_x, None)
 
-                        print(f"a.score + b.score: {a.score + b.score}")
                         if (a.score + b.score) > 16:
-                            return index_of_c_of_z
+                            return (index_of_c_of_z, None)
 
-                        print(f"a.score: {a.score}")
-                        print(f"b.score: {b.score}")
-                        return index_of_b_of_x if b.score < a.score else index_of_a_of_x
+                        return (index_of_b_of_x if b.score < a.score else index_of_a_of_x, None)
 
                     case _:
                         raise Exception("Invalid hand")
@@ -219,7 +229,7 @@ class SimpleAgent:
             # e.g. [3C, 5C, 3D ,5S] -> discard 3C or 3D
             if distinct_rank_count == 2:
                 lowest_rank_card_indices: list[int] = rank_to_card_indices[lowest_card.rank]
-                return lowest_rank_card_indices[ARBITRARY]
+                return (lowest_rank_card_indices[ARBITRARY], None)
 
             raise Exception("Invalid hand: 4 cards of the same rank across 3 suits")
 
@@ -231,17 +241,22 @@ class SimpleAgent:
                 raise NotImplementedError()
 
             if distinct_rank_count == 2:
-                raise NotImplementedError()
+                # We have two pairs of the same rank across two suits
+                # Arbitrarily discard one of the cards from the pair with the lowest rank
+                # e.g. [3D, 3H, 7D, 7H] -> discard 3D or 3H
+                lowest_rank_card_indices: list[int] = rank_to_card_indices[lowest_card.rank]
+                return (lowest_rank_card_indices[ARBITRARY], None)
 
             if distinct_rank_count == 1:
                 raise Exception("Invalid hand: 4 cards of the same rank across 2 suits")
 
         # We have a flush, so discard the lowest scoring card
         # e.g. [2D, 4D, 3D, 5D] -> discard 2D
-        return lowest_card_index
+        return (lowest_card_index, SimpleAgent.draw_flush)
 
     def discard(self, view: View) -> Card:
-        return view.round.discard(SimpleAgent.compute_discard_index(view.hand))
+        discard_index, self.next_draw_function = SimpleAgent.compute_discard_index(view.hand)
+        return view.round.discard(discard_index)
 
     def stop_the_bus(self, view: View) -> bool:
         raise NotImplementedError()
