@@ -11,6 +11,9 @@ log: Logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TURN_COUNT: int = 100
 
+# Returned by Driver.drive when a game ends without a single surviving player
+NO_WINNER: int = -1
+
 
 class Driver:
     __slots__ = ("agents", "game", "max_turn_count")
@@ -50,10 +53,17 @@ class Driver:
             while round.has_turns_remaining:
                 if round.turn > self.max_turn_count:
                     log.error("Maximum turn limit reached, aborting game")
-                    return -1
+                    return NO_WINNER
                 self._drive_turn(round)
             round.end_round()
             self.game.rotate_dealer()
+
+        # Players who tie for the lowest score all lose a life, so the last players standing
+        # can be knocked out together
+        if self.game.live_player_count == 0:
+            log.debug("All remaining players were knocked out together, nobody wins the game")
+            return NO_WINNER
+
         [winner] = self.game.live_players
         log.debug(f"Player {winner} wins the game!")
         return winner
