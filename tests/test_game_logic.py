@@ -3,13 +3,16 @@ from collections.abc import Sequence
 from typing import cast
 
 import hypothesis.strategies as st
+import pytest
 import torch
+import trueskill  # type: ignore
 from hypothesis import given
 from hypothesis.strategies import from_type
 
 from stop_the_bus.Card import Card, Rank, Suit
 from stop_the_bus.Datalog import Database, query
 from stop_the_bus.Deck import Deck, deal, standard_deck
+from stop_the_bus.Driver import NO_WINNER, Driver
 from stop_the_bus.Encoding import (
     MAX_RANK_SUM,
     decode_card,
@@ -31,6 +34,7 @@ from stop_the_bus.Hand import (
     is_prile,
     single_high,
 )
+from stop_the_bus.Rating import trial
 from stop_the_bus.SimpleAgent import ONE_OF_PAIR_IN_LONG_SUIT, PAIR_IN_SHORT_SUITS, SimpleAgent
 
 # from stop_the_bus.SimpleAgent import SimpleAgent
@@ -881,3 +885,288 @@ def test_simple_agent_3_suits_3_ranks_pair_in_short_suits(suits: list[Suit]) -> 
             assert discard_index == expected_discard_index
         else:
             assert discard_index in expected_discard_index
+
+
+def _assert_discards(
+    cards: list[Card],
+    expected_discard_index: int | list[int],
+    permutation: list[int],
+    expects_flush_draw: bool = False,
+) -> None:
+    """Shuffle the cards with the given permutation and check that the agent discards one of the
+    expected cards, whatever position it ends up in."""
+    expected_indices: list[int] = (
+        [expected_discard_index]
+        if isinstance(expected_discard_index, int)
+        else expected_discard_index
+    )
+    expected_cards: list[Card] = [cards[i] for i in expected_indices]
+    hand: Hand = [cards[i] for i in permutation]
+
+    discard_index, draw_function = SimpleAgent.compute_discard_index(hand)
+
+    assert hand[discard_index] in expected_cards, f"{hand} discarded {hand[discard_index]}"
+    if expects_flush_draw:
+        assert draw_function == SimpleAgent.draw_flush
+    else:
+        assert draw_function is None
+
+
+HAND_PERMUTATION = st.permutations(list(range(MAX_HAND_SIZE)))
+
+
+@given(st.lists(from_type(Card), min_size=MAX_HAND_SIZE, max_size=MAX_HAND_SIZE, unique=True))
+def test_simple_agent_discards_from_any_hand(hand: Hand) -> None:
+    discard_index, _ = SimpleAgent.compute_discard_index(hand)
+    assert discard_index in range(len(hand))
+
+
+@given(
+    distinct_suits(4),
+    st.lists(from_type(Rank), min_size=2, max_size=2, unique=True),
+    st.integers(min_value=0, max_value=3),
+    HAND_PERMUTATION,
+)
+def test_simple_agent_keeps_prile(
+    suits: list[Suit], ranks: list[Rank], odd_card_suit_index: int, permutation: list[int]
+) -> None:
+    [prile_rank, odd_rank] = ranks
+
+    # The odd card either shares a suit with one of the prile cards (3 suits) or sits in the
+    # fourth suit (4 suits)
+    cards: list[Card] = [
+        Card(suits[0], prile_rank),
+        Card(suits[1], prile_rank),
+        Card(suits[2], prile_rank),
+        Card(suits[odd_card_suit_index], odd_rank),
+    ]
+
+    _assert_discards(cards, 3, permutation)
+
+
+@given(distinct_suits(4), HAND_PERMUTATION)
+def test_simple_agent_4_suits_3_ranks(suits: list[Suit], permutation: list[int]) -> None:
+    [suit1, suit2, suit3, suit4] = suits
+
+    test_cases: list[tuple[Rank, Rank, Rank, Rank, int | list[int]]] = [
+        (Rank.Three, Rank.Three, Rank.Five, Rank.Seven, 2),
+        (Rank.Three, Rank.Three, Rank.Ace, Rank.Seven, 3),
+        (Rank.Five, Rank.Five, Rank.Ace, Rank.King, 3),
+        (Rank.Five, Rank.Five, Rank.Two, Rank.Ace, 2),
+        (Rank.Ace, Rank.Ace, Rank.Two, Rank.King, 2),
+        (Rank.Nine, Rank.Nine, Rank.Queen, Rank.King, [2, 3]),
+    ]
+
+    for rank_a, rank_b, rank_c, rank_d, expected_discard_index in test_cases:
+        cards: list[Card] = [
+            Card(suit1, rank_a),
+            Card(suit2, rank_b),
+            Card(suit3, rank_c),
+            Card(suit4, rank_d),
+        ]
+        _assert_discards(cards, expected_discard_index, permutation)
+
+
+@given(distinct_suits(3), HAND_PERMUTATION)
+def test_simple_agent_3_suits_4_ranks(suits: list[Suit], permutation: list[int]) -> None:
+    [suit1, suit2, suit3] = suits
+
+    test_cases: list[tuple[Rank, Rank, Rank, Rank, int | list[int]]] = [
+        # Weak long suit and two strong singletons: break the long suit
+        (Rank.Two, Rank.Five, Rank.Nine, Rank.King, 0),
+        (Rank.Five, Rank.Two, Rank.Nine, Rank.King, 1),
+        (Rank.Two, Rank.Three, Rank.Ace, Rank.Seven, 0),
+        (Rank.Four, Rank.Six, Rank.Seven, Rank.Eight, 0),
+        (Rank.Four, Rank.Six, Rank.Eight, Rank.Seven, 0),
+        # Weak long suit but a weak singleton: discard the lowest singleton
+        (Rank.Two, Rank.Five, Rank.Six, Rank.King, 2),
+        (Rank.Two, Rank.Five, Rank.King, Rank.Six, 3),
+        (Rank.Two, Rank.Three, Rank.Ace, Rank.Six, 3),
+        # Strong enough long suit: discard the lowest singleton
+        (Rank.Four, Rank.Seven, Rank.Eight, Rank.Nine, 2),
+        (Rank.Four, Rank.Seven, Rank.Nine, Rank.Eight, 3),
+        (Rank.Six, Rank.Eight, Rank.Four, Rank.King, 2),
+        (Rank.Ace, Rank.King, Rank.Queen, Rank.Two, 3),
+        (Rank.Two, Rank.Nine, Rank.Queen, Rank.King, [2, 3]),
+    ]
+
+    for rank_a, rank_b, rank_c, rank_d, expected_discard_index in test_cases:
+        cards: list[Card] = [
+            Card(suit1, rank_a),
+            Card(suit1, rank_b),
+            Card(suit2, rank_c),
+            Card(suit3, rank_d),
+        ]
+        _assert_discards(cards, expected_discard_index, permutation)
+
+
+@given(distinct_suits(2), HAND_PERMUTATION)
+def test_simple_agent_2_suits_4_ranks_three_in_long_suit(
+    suits: list[Suit], permutation: list[int]
+) -> None:
+    [suit1, suit2] = suits
+
+    test_cases: list[tuple[Rank, Rank, Rank, Rank, int]] = [
+        # Weak long suit and a strong singleton: discard the lowest card in the long suit
+        (Rank.Two, Rank.Three, Rank.Six, Rank.King, 0),
+        (Rank.Six, Rank.Three, Rank.Two, Rank.King, 2),
+        (Rank.Three, Rank.Two, Rank.Four, Rank.Seven, 1),
+        (Rank.Two, Rank.Four, Rank.Seven, Rank.Ace, 0),
+        # Otherwise: discard the singleton and keep the flush
+        (Rank.Two, Rank.Three, Rank.Six, Rank.Five, 3),
+        (Rank.Two, Rank.Four, Rank.Eight, Rank.King, 3),
+        (Rank.Five, Rank.Eight, Rank.Queen, Rank.King, 3),
+        (Rank.Ace, Rank.King, Rank.Queen, Rank.Two, 3),
+        (Rank.Two, Rank.Three, Rank.Four, Rank.Ace, 0),
+    ]
+
+    for rank_a, rank_b, rank_c, rank_d, expected_discard_index in test_cases:
+        cards: list[Card] = [
+            Card(suit1, rank_a),
+            Card(suit1, rank_b),
+            Card(suit1, rank_c),
+            Card(suit2, rank_d),
+        ]
+        _assert_discards(
+            cards,
+            expected_discard_index,
+            permutation,
+            expects_flush_draw=expected_discard_index == 3,
+        )
+
+
+@given(distinct_suits(2), HAND_PERMUTATION)
+def test_simple_agent_2_suits_4_ranks_two_in_each_suit(
+    suits: list[Suit], permutation: list[int]
+) -> None:
+    [suit1, suit2] = suits
+
+    test_cases: list[tuple[Rank, Rank, Rank, Rank, int | list[int]]] = [
+        # Discard the lowest card from the weakest suit
+        (Rank.Nine, Rank.King, Rank.Four, Rank.Seven, 2),
+        (Rank.Nine, Rank.King, Rank.Seven, Rank.Four, 3),
+        (Rank.Four, Rank.Seven, Rank.Nine, Rank.King, 0),
+        (Rank.Seven, Rank.Four, Rank.King, Rank.Nine, 1),
+        (Rank.Two, Rank.Ace, Rank.Six, Rank.Eight, 0),
+        (Rank.Three, Rank.Ace, Rank.Six, Rank.Seven, 2),
+        (Rank.Two, Rank.King, Rank.Six, Rank.Five, 3),
+        # Equally strong suits: discard the lowest card
+        (Rank.Two, Rank.Ace, Rank.Six, Rank.Seven, 0),
+        (Rank.Six, Rank.Seven, Rank.Ace, Rank.Two, 3),
+        (Rank.Ten, Rank.Jack, Rank.Queen, Rank.King, [0, 1, 2, 3]),
+    ]
+
+    for rank_a, rank_b, rank_c, rank_d, expected_discard_index in test_cases:
+        cards: list[Card] = [
+            Card(suit1, rank_a),
+            Card(suit1, rank_b),
+            Card(suit2, rank_c),
+            Card(suit2, rank_d),
+        ]
+        _assert_discards(cards, expected_discard_index, permutation)
+
+
+@given(distinct_suits(2), HAND_PERMUTATION)
+def test_simple_agent_2_suits_3_ranks_three_in_long_suit(
+    suits: list[Suit], permutation: list[int]
+) -> None:
+    [suit1, suit2] = suits
+
+    # (rank of the pair, other two ranks in the long suit, expected discard)
+    test_cases: list[tuple[Rank, Rank, Rank, int | list[int]]] = [
+        # The flush can stop the bus: break the pair and keep the flush
+        (Rank.Five, Rank.Seven, Rank.King, 3),
+        (Rank.Three, Rank.Eight, Rank.Ten, 3),
+        (Rank.Ace, Rank.Two, Rank.Eight, 3),
+        (Rank.Ace, Rank.King, Rank.Queen, 3),
+        # Otherwise: keep the pair and discard the lowest other card in the long suit
+        (Rank.Five, Rank.Four, Rank.Nine, 1),
+        (Rank.Five, Rank.Nine, Rank.Four, 2),
+        (Rank.Three, Rank.Seven, Rank.Ten, 1),
+        (Rank.Ace, Rank.Two, Rank.Seven, 1),
+        (Rank.Two, Rank.Eight, Rank.Ten, 1),
+        (Rank.Six, Rank.Four, Rank.Ten, 1),
+    ]
+
+    for rank_a, rank_b, rank_c, expected_discard_index in test_cases:
+        cards: list[Card] = [
+            Card(suit1, rank_a),
+            Card(suit1, rank_b),
+            Card(suit1, rank_c),
+            Card(suit2, rank_a),
+        ]
+        _assert_discards(
+            cards,
+            expected_discard_index,
+            permutation,
+            expects_flush_draw=expected_discard_index == 3,
+        )
+
+
+@given(distinct_suits(2), HAND_PERMUTATION)
+def test_simple_agent_2_suits_3_ranks_two_in_each_suit(
+    suits: list[Suit], permutation: list[int]
+) -> None:
+    [suit1, suit2] = suits
+
+    # (rank of the pair, other rank in each suit, expected discard)
+    test_cases: list[tuple[Rank, Rank, Rank, int | list[int]]] = [
+        (Rank.Five, Rank.Four, Rank.Nine, 1),
+        (Rank.Five, Rank.Nine, Rank.Four, 3),
+        (Rank.Three, Rank.King, Rank.Ace, 1),
+        (Rank.Ace, Rank.Seven, Rank.Two, 3),
+        (Rank.Two, Rank.Queen, Rank.King, [1, 3]),
+    ]
+
+    for rank_a, rank_b, rank_c, expected_discard_index in test_cases:
+        cards: list[Card] = [
+            Card(suit1, rank_a),
+            Card(suit1, rank_b),
+            Card(suit2, rank_a),
+            Card(suit2, rank_c),
+        ]
+        _assert_discards(cards, expected_discard_index, permutation)
+
+
+def test_driver_reports_no_winner_when_last_players_are_knocked_out_together() -> None:
+    driver: Driver = Driver([SimpleAgent(), SimpleAgent()], lives=1)
+    round: Round = driver.game.start_round()
+
+    # Both players tie for the lowest score, so both lose their last life
+    round.hands = [
+        [Card(Suit.Spades, Rank.Two), Card(Suit.Diamonds, Rank.Five), Card(Suit.Clubs, Rank.Nine)],
+        [Card(Suit.Hearts, Rank.Two), Card(Suit.Spades, Rank.Five), Card(Suit.Diamonds, Rank.Nine)],
+    ]
+    round.end_round()
+
+    assert driver.game.lives == [0, 0]
+    assert driver.drive() == NO_WINNER
+
+
+@pytest.mark.parametrize("winner", [0, 1, 2, 3])
+def test_rating_trial_rewards_winner(winner: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Driver, "drive", lambda self: winner)
+
+    env = trueskill.TrueSkill()
+    ratings: list[trueskill.Rating] = [env.create_rating() for _ in range(4)]
+    initial_mu: float = ratings[0].mu
+
+    trial(env, [SimpleAgent() for _ in range(4)], ratings)
+
+    for player, rating in enumerate(ratings):
+        if player == winner:
+            assert rating.mu > initial_mu
+        else:
+            assert rating.mu < initial_mu
+
+
+def test_rating_trial_ignores_games_without_winner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(Driver, "drive", lambda self: NO_WINNER)
+
+    env = trueskill.TrueSkill()
+    ratings: list[trueskill.Rating] = [env.create_rating() for _ in range(4)]
+    expected: list[trueskill.Rating] = list(ratings)
+
+    trial(env, [SimpleAgent() for _ in range(4)], ratings)
+
+    assert ratings == expected
